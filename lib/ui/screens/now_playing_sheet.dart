@@ -55,16 +55,13 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   void _onPlayerScroll() {
     if (_playerScrollController.hasClients &&
         _playerScrollController.position.pixels > 35 &&
-        !_isLyricsView &&
-        context.read<PlayerProvider>().hasSyncedLyrics) {
+        !_isLyricsView) {
       _openLyrics();
     }
   }
 
   void _openLyrics() {
     if (_isLyricsView) return;
-    final player = context.read<PlayerProvider>();
-    if (!player.hasSyncedLyrics) return;
 
     _initAnimation();
     _lyricKeys.clear();
@@ -413,7 +410,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                     // 3. Compact Frosted Glass Top Bar Container (Slides down smoothly into place)
                     if (t > 0.01)
                       Positioned(
-                        top: 6,
+                        top: 10,
                         left: 14,
                         right: 14,
                         child: Transform.translate(
@@ -449,8 +446,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       },
       onVerticalDragEnd: (details) {
         if (details.primaryVelocity != null) {
-          // Swipe up to open lyrics ONLY if synced lyrics exist
-          if (details.primaryVelocity! < -180 && player.hasSyncedLyrics) {
+          // Swipe up to open lyrics
+          if (details.primaryVelocity! < -180) {
             _openLyrics();
           }
           // Swipe down to dismiss Now Playing entirely
@@ -588,9 +585,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
                         // Top Header Controls over the artwork
                         Positioned(
-                          top: 8,
-                          left: 8,
-                          right: 8,
+                          top: 10,
+                          left: 12,
+                          right: 12,
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -1121,29 +1118,50 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                           ),
                         ],
 
-                        // Swipe up hint pill for lyrics - conditionally shown ONLY if synced lyrics exist
-                        if (player.hasSyncedLyrics)
-                          GestureDetector(
-                            onTap: _openLyrics,
-                            child: Container(
-                              margin: const EdgeInsets.only(top: 8, bottom: 12),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: (isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurfaceElevated)
-                                    .withValues(alpha: 0.6),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(
-                                  color: isDark
-                                      ? AppColors.darkBorder
-                                      : AppColors.lightBorder,
-                                ),
+                        // Lyrics pill - always visible, adapts smoothly to loading/synced states
+                        GestureDetector(
+                          onTap: _openLyrics,
+                          child: Container(
+                            margin: const EdgeInsets.only(top: 8, bottom: 12),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: (isDark
+                                      ? AppColors.darkSurface
+                                      : AppColors.lightSurfaceElevated)
+                                  .withValues(alpha: 0.6),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isDark
+                                    ? AppColors.darkBorder
+                                    : AppColors.lightBorder,
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (player.isLoadingLyrics) ...[
+                                  const SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 1.8,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'LOADING LYRICS...',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.8,
+                                      color: isDark
+                                          ? AppColors.darkTextSecondary
+                                          : AppColors.lightTextSecondary,
+                                    ),
+                                  ),
+                                ] else if (player.hasSyncedLyrics) ...[
                                   const Icon(
                                     Icons.keyboard_arrow_up_rounded,
                                     size: 18,
@@ -1161,12 +1179,29 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                           : AppColors.lightTextSecondary,
                                     ),
                                   ),
+                                ] else ...[
+                                  const Icon(
+                                    Icons.lyrics_outlined,
+                                    size: 15,
+                                    color: AppColors.primary,
+                                  ),
+                                  const SizedBox(width: 5),
+                                  Text(
+                                    'LYRICS',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      letterSpacing: 0.8,
+                                      color: isDark
+                                          ? AppColors.darkTextSecondary
+                                          : AppColors.lightTextSecondary,
+                                    ),
+                                  ),
                                 ],
-                              ),
+                              ],
                             ),
-                          )
-                        else
-                          const SizedBox(height: 16),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1452,11 +1487,25 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                     : AppColors.lightTextSecondary,
               ),
             ),
-            const SizedBox(height: 6),
-            TextButton.icon(
-              onPressed: _closeLyrics,
-              icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
-              label: const Text('Back to Player'),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TextButton.icon(
+                  onPressed: () => player.retryLyrics(),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Retry'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.primary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _closeLyrics,
+                  icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
+                  label: const Text('Back to Player'),
+                ),
+              ],
             ),
           ],
         ),

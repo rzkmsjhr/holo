@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/player_provider.dart';
@@ -55,46 +56,65 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
     LibraryScreen(),
   ];
 
+  static const MethodChannel _appChannel = MethodChannel('com.example.holo/app');
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        children: [
-          // Screen Stack with adaptive Network Status Header
-          Column(
-            children: [
-              const NetworkStatusBanner(),
-              Expanded(
-                child: IndexedStack(
-                  index: _currentTabIndex,
-                  children: _screens,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        if (_currentTabIndex != 0) {
+          // If on Search or Library tab, return to Home tab first
+          setState(() => _currentTabIndex = 0);
+        } else {
+          // If at Home tab, minimize the app to the background without stopping music
+          try {
+            await _appChannel.invokeMethod('minimize');
+          } catch (_) {
+            // Fallback for non-Android platforms
+          }
+        }
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        body: Stack(
+          children: [
+            // Screen Stack with adaptive Network Status Header
+            Column(
+              children: [
+                const NetworkStatusBanner(),
+                Expanded(
+                  child: IndexedStack(
+                    index: _currentTabIndex,
+                    children: _screens,
+                  ),
                 ),
-              ),
-            ],
-          ),
-
-          // Floating Mini Player (Positioned directly above the bottom nav bar)
-          const Positioned(
-            left: 0,
-            right: 0,
-            bottom: 78,
-            child: MiniPlayer(),
-          ),
-
-          // Standard Bottom Navigation Bar
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: BottomNavBar(
-              currentIndex: _currentTabIndex,
-              onTabSelected: (index) {
-                setState(() => _currentTabIndex = index);
-              },
+              ],
             ),
-          ),
-        ],
+
+            // Floating Mini Player (Positioned directly above the bottom nav bar)
+            const Positioned(
+              left: 0,
+              right: 0,
+              bottom: 78,
+              child: MiniPlayer(),
+            ),
+
+            // Standard Bottom Navigation Bar
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: BottomNavBar(
+                currentIndex: _currentTabIndex,
+                onTabSelected: (index) {
+                  setState(() => _currentTabIndex = index);
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

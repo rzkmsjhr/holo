@@ -126,6 +126,10 @@ class PlayerProvider extends ChangeNotifier {
   String? get resolvingTrendingKey => _resolvingTrendingKey;
   List<Playlist> get playlists => _playlists ?? const [];
   static const String _likedTracksKey = 'user_liked_tracks_v2';
+  static const String _recentlyPlayedKey = 'holo_recently_played_v2';
+  static const String _lastTrackKey = 'holo_last_track_v2';
+  static const String _lastQueueKey = 'holo_last_queue_v2';
+  static const String _lastIndexKey = 'holo_last_index_v2';
   List<Track> _likedTracks = [];
   List<Track> get likedTracks => _likedTracks;
 
@@ -150,7 +154,7 @@ class PlayerProvider extends ChangeNotifier {
   PlayerProvider() {
     _initConnectivity();
     _initAudioListeners();
-    _loadSampleCatalog();
+    _initSavedPlayerState();
     _initTasteAndMixes();
     _initTrending();
     _initPlaylists();
@@ -250,10 +254,78 @@ class PlayerProvider extends ChangeNotifier {
     );
   }
 
-  void _loadSampleCatalog() {
+  void _initSavedPlayerState() async {
     _queue = [];
     _currentTrack = null;
     _recentlyPlayed = [];
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1. Restore recently played
+      final savedRecent = prefs.getString(_recentlyPlayedKey);
+      if (savedRecent != null && savedRecent.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(savedRecent);
+        _recentlyPlayed = list
+            .map((item) => Track.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+
+      // 2. Restore playing queue & index
+      final savedQueue = prefs.getString(_lastQueueKey);
+      if (savedQueue != null && savedQueue.isNotEmpty) {
+        final List<dynamic> list = jsonDecode(savedQueue);
+        _queue = list
+            .map((item) => Track.fromJson(item as Map<String, dynamic>))
+            .toList();
+      }
+      final savedIndex = prefs.getInt(_lastIndexKey) ?? 0;
+      if (_queue.isNotEmpty) {
+        _currentIndex = savedIndex.clamp(0, _queue.length - 1);
+      }
+
+      // 3. Restore last played track
+      final savedTrack = prefs.getString(_lastTrackKey);
+      if (savedTrack != null && savedTrack.isNotEmpty) {
+        final Map<String, dynamic> trackJson = jsonDecode(savedTrack);
+        final track = Track.fromJson(trackJson);
+        _currentTrack = track;
+        _duration = Duration(seconds: track.durationSeconds);
+        _position = Duration.zero;
+        _isPlaying = false;
+      } else if (_queue.isNotEmpty && _currentIndex < _queue.length) {
+        _currentTrack = _queue[_currentIndex];
+        _duration = Duration(seconds: _currentTrack!.durationSeconds);
+        _position = Duration.zero;
+        _isPlaying = false;
+      }
+
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  Future<void> _persistPlayerState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 1. Save recently played
+      if (_recentlyPlayed != null) {
+        final recentList = _recentlyPlayed!.map((t) => t.toJson()).toList();
+        await prefs.setString(_recentlyPlayedKey, jsonEncode(recentList));
+      }
+
+      // 2. Save queue and index
+      if (_queue.isNotEmpty) {
+        final queueList = _queue.map((t) => t.toJson()).toList();
+        await prefs.setString(_lastQueueKey, jsonEncode(queueList));
+        await prefs.setInt(_lastIndexKey, _currentIndex);
+      }
+
+      // 3. Save current track
+      if (_currentTrack != null) {
+        await prefs.setString(_lastTrackKey, jsonEncode(_currentTrack!.toJson()));
+      }
+    } catch (_) {}
   }
 
   void _addToRecentlyPlayed(Track track) {
@@ -266,6 +338,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_recentlyPlayed!.length > 20) {
       _recentlyPlayed!.removeLast();
     }
+    _persistPlayerState();
   }
 
   void _updateAllMatchingTrackArtworks(
@@ -596,6 +669,7 @@ class PlayerProvider extends ChangeNotifier {
       _queue = [track];
       _currentIndex = 0;
     }
+    _persistPlayerState();
     _duration = Duration(seconds: track.durationSeconds);
     _position = Duration.zero;
     _isBuffering = true;
@@ -728,12 +802,14 @@ class PlayerProvider extends ChangeNotifier {
   /// Condition 2: When songs are added to the queue
   void addToQueue(Track track) {
     _queue.add(track);
+    _persistPlayerState();
     notifyListeners();
     _resolveTrackHiFiInBackground(track);
   }
 
   void addTracksToQueue(List<Track> tracks) {
     _queue.addAll(tracks);
+    _persistPlayerState();
     notifyListeners();
     _resolveQueueHiFiInBackground();
   }
@@ -899,6 +975,7 @@ class PlayerProvider extends ChangeNotifier {
       if (_currentIndex >= _queue.length) {
         _currentIndex = 0;
       }
+      _persistPlayerState();
       notifyListeners();
     }
   }
@@ -909,6 +986,7 @@ class PlayerProvider extends ChangeNotifier {
     }
     final item = _queue.removeAt(oldIndex);
     _queue.insert(newIndex, item);
+    _persistPlayerState();
     notifyListeners();
   }
 
@@ -916,7 +994,18 @@ class PlayerProvider extends ChangeNotifier {
     if (_currentTrack != null) {
       _queue = [_currentTrack!];
       _currentIndex = 0;
+      _persistPlayerState();
       notifyListeners();
+    }
+  }
+
+  Future<void> retryLyrics() async {
+    if (_currentTrack != null) {
+      _isLoadingLyrics = true;
+      _currentLyrics = [];
+      _hasSyncedLyrics = false;
+      notifyListeners();
+      await _checkLyricsForTrack(_currentTrack!);
     }
   }
 
@@ -926,6 +1015,7 @@ class PlayerProvider extends ChangeNotifier {
         trackName: track.title,
         artistName: track.artist,
         durationSeconds: track.durationSeconds,
+        youtubeVideoId: track.youtubeVideoId,
       );
       if (_currentTrack?.id == track.id) {
         _currentLyrics = lyrics;

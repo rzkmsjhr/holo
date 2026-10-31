@@ -160,7 +160,7 @@ class _SearchScreenState extends State<SearchScreen> {
           children: [
             // Header
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: Text(
                 'Search',
                 style: Theme.of(context).textTheme.headlineSmall,

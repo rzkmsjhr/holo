@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 class LyricLine {
   final Duration timestamp;
@@ -60,6 +61,7 @@ class LyricsService {
     required String trackName,
     required String artistName,
     int? durationSeconds,
+    String? youtubeVideoId,
   }) async {
     final cacheKey = '$trackName|$artistName';
     if (_cache.containsKey(cacheKey) &&
@@ -71,51 +73,178 @@ class LyricsService {
     final cleanedTitle = cleanTitle(trackName);
     final cleanedArtist = cleanArtist(artistName);
 
-    // 1. Search endpoint with ranked candidates (highest quality synced results)
-    var result = await _fetchFromLrclibSearch(
-      query: '$cleanedTitle $cleanedArtist',
-      targetDurationSeconds: durationSeconds,
+    // Parallel fetch: try both LRCLIB and YouTube closed captions simultaneously
+    final lrclibFuture = _fetchFromLrclibAll(
+      cleanedTitle: cleanedTitle,
+      cleanedArtist: cleanedArtist,
+      rawTitle: trackName,
+      rawArtist: artistName,
+      durationSeconds: durationSeconds,
     );
-    if (_isValidLyrics(result)) {
-      _cache[cacheKey] = result;
-      return result;
+
+    final ytFuture = _fetchFromYouTube(
+      youtubeVideoId,
+      cleanedTitle,
+      cleanedArtist,
+    );
+
+    final results = await Future.wait([
+      lrclibFuture.catchError((_) => <LyricLine>[]),
+      ytFuture.catchError((_) => <LyricLine>[]),
+    ]);
+
+    final lrclibResult = results[0];
+    final ytResult = results[1];
+
+    if (_isValidLyrics(lrclibResult)) {
+      _cache[cacheKey] = lrclibResult;
+      return lrclibResult;
     }
 
-    // 2. Try search with raw title and artist
-    if (cleanedTitle != trackName || cleanedArtist != artistName) {
-      result = await _fetchFromLrclibSearch(
-        query: '$trackName $artistName',
-        targetDurationSeconds: durationSeconds,
-      );
-      if (_isValidLyrics(result)) {
-        _cache[cacheKey] = result;
-        return result;
-      }
+    if (_isValidLyrics(ytResult)) {
+      _cache[cacheKey] = ytResult;
+      return ytResult;
     }
 
-    // 3. Fallback to /api/get with cleaned title and artist (validated)
-    result = await _fetchFromLrclibGet(cleanedTitle, cleanedArtist, durationSeconds);
-    if (_isValidLyrics(result)) {
-      _cache[cacheKey] = result;
-      return result;
+    if (lrclibResult.isNotEmpty) {
+      _cache[cacheKey] = lrclibResult;
+      return lrclibResult;
     }
 
-    // 4. Fallback to /api/get with raw title and artist (validated)
-    if (cleanedTitle != trackName || cleanedArtist != artistName) {
-      result = await _fetchFromLrclibGet(trackName, artistName, durationSeconds);
-      if (_isValidLyrics(result)) {
-        _cache[cacheKey] = result;
-        return result;
-      }
-    }
-
-    // If no synced lyrics pass validation, return whatever best was found or empty
-    if (result.isNotEmpty) {
-      _cache[cacheKey] = result;
-      return result;
+    if (ytResult.isNotEmpty) {
+      _cache[cacheKey] = ytResult;
+      return ytResult;
     }
 
     return [];
+  }
+
+  Future<List<LyricLine>> _fetchFromLrclibAll({
+    required String cleanedTitle,
+    required String cleanedArtist,
+    required String rawTitle,
+    required String rawArtist,
+    int? durationSeconds,
+  }) async {
+    try {
+      // 1. Search endpoint with cleaned query
+      var res = await _fetchFromLrclibSearch(
+        query: '$cleanedTitle $cleanedArtist',
+        targetDurationSeconds: durationSeconds,
+      );
+      if (_isValidLyrics(res)) return res;
+
+      // 2. Direct get with cleaned title and artist
+      res = await _fetchFromLrclibGet(cleanedTitle, cleanedArtist, durationSeconds);
+      if (_isValidLyrics(res)) return res;
+
+      // 3. Fallback search with raw query if different
+      if (cleanedTitle != rawTitle || cleanedArtist != rawArtist) {
+        res = await _fetchFromLrclibSearch(
+          query: '$rawTitle $rawArtist',
+          targetDurationSeconds: durationSeconds,
+        );
+        if (_isValidLyrics(res)) return res;
+      }
+
+      if (res.isNotEmpty) return res;
+    } catch (_) {}
+    return [];
+  }
+
+  Future<List<LyricLine>> _fetchFromYouTube(
+      String? videoId, String title, String artist) async {
+    final yt = YoutubeExplode();
+    try {
+      String? targetId = videoId;
+      if (targetId == null ||
+          targetId.isEmpty ||
+          targetId.startsWith('trending_')) {
+        try {
+          final searchResults = await yt.search
+              .search('$title $artist lyrics')
+              .timeout(const Duration(seconds: 4));
+          if (searchResults.isNotEmpty) {
+            targetId = searchResults.first.id.value;
+          } else {
+            final standardResults = await yt.search
+                .search('$title $artist')
+                .timeout(const Duration(seconds: 4));
+            if (standardResults.isNotEmpty) {
+              targetId = standardResults.first.id.value;
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (targetId == null || targetId.isEmpty) return [];
+
+      ClosedCaptionManifest manifest;
+      try {
+        manifest = await yt.videos.closedCaptions
+            .getManifest(targetId)
+            .timeout(const Duration(seconds: 4));
+      } catch (_) {
+        return [];
+      }
+
+      if (manifest.tracks.isEmpty) {
+        try {
+          final lyricSearch = await yt.search
+              .search('$title $artist lyrics')
+              .timeout(const Duration(seconds: 4));
+          for (final video in lyricSearch.take(3)) {
+            if (video.id.value == targetId) continue;
+            try {
+              final m = await yt.videos.closedCaptions
+                  .getManifest(video.id)
+                  .timeout(const Duration(seconds: 3));
+              if (m.tracks.isNotEmpty) {
+                final trackInfo = m.tracks.firstWhere(
+                  (t) => !t.isAutoGenerated,
+                  orElse: () => m.tracks.first,
+                );
+                final sub = await yt.videos.closedCaptions
+                    .get(trackInfo)
+                    .timeout(const Duration(seconds: 3));
+                final lines = sub.captions
+                    .map((c) => LyricLine(
+                          timestamp: c.offset,
+                          text: c.text.replaceAll('\n', ' ').trim(),
+                        ))
+                    .where((l) => l.text.isNotEmpty && !l.text.startsWith('['))
+                    .toList();
+                if (lines.length >= 4) return lines;
+              }
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return [];
+      }
+
+      final trackInfo = manifest.tracks.firstWhere(
+        (t) => !t.isAutoGenerated,
+        orElse: () => manifest.tracks.first,
+      );
+
+      final sub = await yt.videos.closedCaptions
+          .get(trackInfo)
+          .timeout(const Duration(seconds: 4));
+
+      final lines = sub.captions
+          .map((c) => LyricLine(
+                timestamp: c.offset,
+                text: c.text.replaceAll('\n', ' ').trim(),
+              ))
+          .where((l) => l.text.isNotEmpty && !l.text.startsWith('['))
+          .toList();
+
+      return lines;
+    } catch (_) {
+      return [];
+    } finally {
+      yt.close();
+    }
   }
 
   Future<List<LyricLine>> _fetchFromLrclibSearch({
@@ -127,7 +256,7 @@ class LyricsService {
     try {
       final res = await http.get(uri, headers: {
         'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
-      }).timeout(const Duration(seconds: 5));
+      }).timeout(const Duration(seconds: 3));
 
       if (res.statusCode != 200) return [];
 
@@ -211,7 +340,7 @@ class LyricsService {
     try {
       final res = await http.get(uri, headers: {
         'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
-      }).timeout(const Duration(seconds: 5));
+      }).timeout(const Duration(seconds: 3));
 
       if (res.statusCode != 200) return [];
 
