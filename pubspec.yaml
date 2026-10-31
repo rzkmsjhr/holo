@@ -1,0 +1,37 @@
+name: pulse_audio
+description: "Pulse Audio - Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio & Media Playback
+  just_audio: ^0.9.46
+  audio_service: ^0.18.18
+  audio_session: ^0.1.21
+
+  # Networking & APIs
+  http: ^1.2.2
+
+  # State Management & Persistence
+  provider: ^6.1.2
+  shared_preferences: ^2.3.5
+
+  # Design & Utilities
+  google_fonts: ^6.2.1
+  cached_network_image: ^3.4.1
+  flutter_svg: ^2.0.17
+  youtube_explode_dart: ^3.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
