@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,7 +53,7 @@ class PlayerProvider extends ChangeNotifier {
   int _currentIndex = 0;
   bool _isShuffled = false;
   int _repeatMode = 0; // 0 = off, 1 = all, 2 = one
-  double _volume = 0.8;
+  double _volume = 1.0; // Locked to maximum unity gain (100% volume)
   bool _isHifiResolving = false;
   bool _isDarkMode = true;
   String? _playbackError;
@@ -221,7 +222,13 @@ class PlayerProvider extends ChangeNotifier {
     await loadPlaylists();
   }
 
-  void _initAudioListeners() {
+  void _initAudioListeners() async {
+    try {
+      await _audioPlayer.setVolume(1.0);
+      final session = await AudioSession.instance;
+      await session.configure(const AudioSessionConfiguration.music());
+    } catch (_) {}
+
     _posSub = _audioPlayer.positionStream.listen((pos) {
       _position = pos;
       notifyListeners();
@@ -789,6 +796,7 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> _playStream(String url) async {
     try {
       await _audioPlayer.setUrl(url);
+      await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
     } catch (e) {
       _playbackError = !isOnline
