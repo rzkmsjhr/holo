@@ -29,7 +29,7 @@ class PulseAudioApp extends StatelessWidget {
     final player = context.watch<PlayerProvider>();
 
     return MaterialApp(
-      title: 'Pulse Audio',
+      title: 'Holo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),

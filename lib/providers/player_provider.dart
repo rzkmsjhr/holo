@@ -251,39 +251,9 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _loadSampleCatalog() {
-    _queue = [
-      Track(
-        id: 'dQw4w9WgXcQ',
-        title: 'Never Gonna Give You Up',
-        artist: 'Rick Astley',
-        album: 'Whenever You Need Somebody',
-        thumbnailUrl:
-            'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500',
-        durationSeconds: 213,
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        audioSource: 'youtube',
-      ),
-      Track(
-        id: '2',
-        title: 'Tokyo Midnight Rain',
-        artist: 'Tycho & Com Truise',
-        album: 'Awake Variant',
-        thumbnailUrl:
-            'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=500',
-        durationSeconds: 248,
-        youtubeVideoId: 'dQw4w9WgXcQ',
-        audioSource: 'youtube',
-      ),
-    ];
-    _currentTrack = _queue[0];
-    _duration = Duration(seconds: _currentTrack!.durationSeconds);
-    _recentlyPlayed = List.from(_queue);
-
-    // Eagerly resolve queue in background (Condition 2)
-    _resolveQueueHiFiInBackground();
-
-    // Check lyrics for the initial track
-    _checkLyricsForTrack(_currentTrack!);
+    _queue = [];
+    _currentTrack = null;
+    _recentlyPlayed = [];
   }
 
   void _addToRecentlyPlayed(Track track) {

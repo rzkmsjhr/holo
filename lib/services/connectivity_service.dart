@@ -65,7 +65,18 @@ class ConnectivityService {
           reachable = true;
         }
       } catch (_) {
-        reachable = false;
+        try {
+          final res = await http
+              .get(Uri.parse('https://clients3.google.com/generate_204'))
+              .timeout(_pingTimeout);
+          sw.stop();
+          if (res.statusCode == 204 ||
+              (res.statusCode >= 200 && res.statusCode < 400)) {
+            reachable = true;
+          }
+        } catch (_) {
+          reachable = false;
+        }
       }
     }
 

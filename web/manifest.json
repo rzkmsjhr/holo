@@ -1,6 +1,6 @@
 {
-    "name": "pulse_audio",
-    "short_name": "pulse_audio",
+    "name": "Holo",
+    "short_name": "Holo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
@@ -33,3 +33,4 @@
         }
     ]
 }
+
