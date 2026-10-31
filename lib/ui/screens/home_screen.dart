@@ -335,10 +335,20 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? Image.network(
                             art,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: AppColors.secondary,
-                              child: const Icon(Icons.music_note,
-                                  color: Colors.white, size: 20),
+                            errorBuilder: (_, __, ___) => Image.network(
+                              (track.thumbnailUrl.isNotEmpty &&
+                                      track.thumbnailUrl != art)
+                                  ? track.thumbnailUrl
+                                  : (art.contains('maxresdefault.jpg')
+                                      ? art.replaceAll('maxresdefault.jpg',
+                                          'hqdefault.jpg')
+                                      : ''),
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: AppColors.secondary,
+                                child: const Icon(Icons.music_note,
+                                    color: Colors.white, size: 20),
+                              ),
                             ),
                           )
                         : Container(
@@ -1123,11 +1133,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? Image.network(
                             art,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.music_note,
-                              color: Colors.white,
-                              size: 22,
-                            ),
+                            errorBuilder: (_, __, ___) => (art.contains('maxresdefault.jpg'))
+                                ? Image.network(
+                                    art.replaceAll('maxresdefault.jpg', 'hqdefault.jpg'),
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.music_note,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.music_note,
+                                    color: Colors.white,
+                                    size: 22,
+                                  ),
                           )
                         : Container(
                             decoration: BoxDecoration(

@@ -35,7 +35,7 @@ class TrendingService {
       ).timeout(const Duration(seconds: 8));
 
       if (res.statusCode == 200 && res.body.isNotEmpty) {
-        final parsed = _parseKworbHtml(res.body);
+        final parsed = _parseKworbHtml(res.body, isGlobal);
         if (parsed.isNotEmpty) {
           return parsed;
         }
@@ -68,6 +68,9 @@ class TrendingService {
         final resolved = match.copyWith(
           title: item.title,
           artist: item.artist,
+          thumbnailUrl: match.thumbnailUrl.isNotEmpty
+              ? match.thumbnailUrl
+              : (item.thumbnailUrl ?? ''),
         );
 
         _resolvedCache[cacheKey] = resolved;
@@ -92,11 +95,12 @@ class TrendingService {
     return artistMatch || titleMatch;
   }
 
-  List<TrendingTrack> _parseKworbHtml(String html) {
+  List<TrendingTrack> _parseKworbHtml(String html, bool isGlobal) {
     final rowsRegex = RegExp(r'<tr[^>]*>(.*?)</tr>', dotAll: true);
     final tdRegex = RegExp(r'<td[^>]*>(.*?)</td>', dotAll: true);
     final tagStrip = RegExp(r'<[^>]+>');
 
+    final snapshot = isGlobal ? kGlobalTop50Snapshot : kIndonesiaTop50Snapshot;
     final List<TrendingTrack> tracks = [];
 
     for (final rowMatch in rowsRegex.allMatches(html)) {
@@ -123,6 +127,18 @@ class TrendingService {
 
         final plays = tds[6].replaceAll(tagStrip, '').trim();
 
+        // Match artwork from verified snapshot
+        String? thumb;
+        for (final s in snapshot) {
+          final sA = (s['artist'] as String? ?? '').toLowerCase().trim();
+          final sT = (s['title'] as String? ?? '').toLowerCase().trim();
+          if ((sA == artist.toLowerCase().trim() && sT == title.toLowerCase().trim()) ||
+              (rank == s['rank'] && (sA.contains(artist.toLowerCase()) || artist.toLowerCase().contains(sA)))) {
+            thumb = s['thumbnailUrl'] as String?;
+            break;
+          }
+        }
+
         tracks.add(TrendingTrack(
           rank: rank,
           trend: trend.isNotEmpty ? trend : '=',
@@ -130,6 +146,7 @@ class TrendingService {
           title: title,
           plays: plays,
           query: '$artist - $title',
+          thumbnailUrl: thumb,
         ));
       }
     }
