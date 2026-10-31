@@ -105,12 +105,16 @@ class HifiMatcher {
   }
 
   bool _isArtistFuzzyMatch(String candidateArtist, String targetArtist) {
-    final c = candidateArtist.toLowerCase();
-    final t = targetArtist.toLowerCase();
+    final c = candidateArtist.toLowerCase().trim();
+    final t = targetArtist.toLowerCase().trim();
+    if (c.isEmpty || t.isEmpty) return false;
     if (c.contains(t) || t.contains(c)) return true;
 
-    final tFirst = t.split(RegExp(r'[\s,&/]+')).first;
-    if (tFirst.length >= 3 && c.contains(tFirst)) return true;
+    final separators = RegExp(r'[\s,&/、・+]+');
+    final tParts = t.split(separators).where((p) => p.isNotEmpty).toList();
+    for (final part in tParts) {
+      if (part.length >= 2 && c.contains(part)) return true;
+    }
 
     return false;
   }

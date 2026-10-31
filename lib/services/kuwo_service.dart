@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
 class KuwoService {
@@ -20,14 +21,16 @@ class KuwoService {
         Uri.parse(searchUrl),
         headers: {
           'User-Agent': userAgent,
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+          'Accept': 'application/json, text/plain, */*',
         },
-        body: 'platform=kuwo&keyword=${Uri.encodeComponent(clean)}&page=1&size=$size',
+        body: 'platform=kuwo&keyword=${Uri.encodeQueryComponent(clean)}&page=1&size=$size',
       );
 
       if (res.statusCode != 200) return [];
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       if (data['code'] != 0) return [];
 
       final List list = data['data']?['list'] ?? [];
@@ -53,14 +56,15 @@ class KuwoService {
         Uri.parse(getUrlEndpoint),
         headers: {
           'User-Agent': userAgent,
-          'Content-Type': 'application/x-www-form-urlencoded',
+          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
         },
         body: body,
       );
 
       if (res.statusCode != 200) return null;
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       if (data['code'] == 0 && data['data']?['url'] != null) {
         return data['data']['url'] as String;
       }

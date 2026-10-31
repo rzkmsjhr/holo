@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import '../core/utils/text_encoding_utils.dart';
 
 class LyricLine {
   final Duration timestamp;
@@ -51,9 +52,9 @@ class LyricsService {
 
   /// Validates that a lyrics result contains real, complete lyrics rather than a single placeholder/troll line
   bool _isValidLyrics(List<LyricLine> lines) {
-    if (lines.length < 4) return false;
+    if (lines.length < 3) return false;
     final totalChars = lines.fold<int>(0, (sum, l) => sum + l.text.length);
-    return totalChars > 40;
+    return totalChars >= 15;
   }
 
   /// Fetches synchronized timestamped lyrics for a track
@@ -260,7 +261,8 @@ class LyricsService {
 
       if (res.statusCode != 200) return [];
 
-      final list = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final list = jsonDecode(decoded);
       if (list is! List || list.isEmpty) return [];
 
       // Collect all candidates with syncedLyrics
@@ -344,7 +346,8 @@ class LyricsService {
 
       if (res.statusCode != 200) return [];
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       final syncedLyrics = data['syncedLyrics'] as String?;
 
       if (syncedLyrics != null && syncedLyrics.isNotEmpty) {

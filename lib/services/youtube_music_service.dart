@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
 class YouTubeMusicService {
@@ -48,7 +49,8 @@ class YouTubeMusicService {
         return [];
       }
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       return _parseYtmResponse(data);
     } catch (_) {
       return [];
@@ -87,7 +89,8 @@ class YouTubeMusicService {
 
       if (res.statusCode != 200) return [];
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       final List<Track> tracks = [];
 
       final tabs = data['contents']?['singleColumnMusicWatchNextResultsRenderer']

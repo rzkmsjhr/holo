@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/utils/text_encoding_utils.dart';
 
 class ArtworkService {
   static const String _storageKey = 'artwork_cache_v2';
@@ -98,7 +99,8 @@ class ArtworkService {
       }).timeout(const Duration(seconds: 4));
 
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+        final data = jsonDecode(decoded);
         final results = data['results'] as List?;
         if (results != null && results.isNotEmpty) {
           final rawArt = results[0]['artworkUrl100'] as String?;
@@ -120,7 +122,8 @@ class ArtworkService {
         }).timeout(const Duration(seconds: 4));
 
         if (res.statusCode == 200) {
-          final data = jsonDecode(res.body);
+          final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+          final data = jsonDecode(decoded);
           final results = data['results'] as List?;
           if (results != null && results.isNotEmpty) {
             final rawArt = results[0]['artworkUrl100'] as String?;
@@ -146,7 +149,8 @@ class ArtworkService {
       }).timeout(const Duration(seconds: 4));
 
       if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
+        final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+        final data = jsonDecode(decoded);
         final list = data['data'] as List?;
         if (list != null && list.isNotEmpty) {
           final album = list[0]['album'] as Map<String, dynamic>?;

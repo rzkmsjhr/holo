@@ -1,3 +1,5 @@
+import '../core/utils/text_encoding_utils.dart';
+
 class Track {
   final String id;
   final String title;
@@ -107,9 +109,9 @@ class Track {
   factory Track.fromJson(Map<String, dynamic> json) {
     return Track(
       id: json['id'] as String,
-      title: json['title'] as String,
-      artist: json['artist'] as String,
-      album: json['album'] as String? ?? '',
+      title: TextEncodingUtils.cleanMojibake(json['title'] as String),
+      artist: TextEncodingUtils.cleanMojibake(json['artist'] as String),
+      album: TextEncodingUtils.cleanMojibake(json['album'] as String? ?? ''),
       thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
       durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
       isExplicit: json['isExplicit'] as bool? ?? false,

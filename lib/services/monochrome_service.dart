@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
 class MonochromeService {
@@ -23,7 +24,8 @@ class MonochromeService {
 
       if (res.statusCode != 200) return [];
 
-      final data = jsonDecode(res.body);
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
       final List rawTracks = data['tracks'] ?? [];
       final List<Track> tracks = [];
 

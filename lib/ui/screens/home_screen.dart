@@ -1240,10 +1240,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ],
 
-              // Plays Counter
+              // Plays Counter (2 rows: [headphones icon + number] over [plays])
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                 decoration: BoxDecoration(
                   color: (isDark
                           ? const Color(0xFF1B1F2A)
@@ -1251,25 +1251,42 @@ class _HomeScreenState extends State<HomeScreen> {
                       .withValues(alpha: 0.7),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: Row(
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Icon(
-                      Icons.headphones_rounded,
-                      size: 11,
-                      color: isDark
-                          ? AppColors.darkTextSecondary
-                          : AppColors.lightTextSecondary,
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.headphones_rounded,
+                          size: 10,
+                          color: isDark
+                              ? AppColors.darkTextSecondary
+                              : AppColors.lightTextSecondary,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          item.formattedPlaysNumber,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.2,
+                            color: isDark
+                                ? AppColors.darkTextSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 4),
                     Text(
-                      item.formattedPlays,
+                      'plays',
                       style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w600,
+                        fontSize: 8.5,
+                        fontWeight: FontWeight.w500,
                         color: isDark
-                            ? AppColors.darkTextSecondary
-                            : AppColors.lightTextSecondary,
+                            ? AppColors.darkTextTertiary
+                            : AppColors.lightTextTertiary,
                       ),
                     ),
                   ],

@@ -1,5 +1,7 @@
 import 'track.dart';
 
+import '../core/utils/text_encoding_utils.dart';
+
 class TrendingTrack {
   final int rank;
   final String trend; // "=", "+2", "-1"
@@ -25,10 +27,10 @@ class TrendingTrack {
     return TrendingTrack(
       rank: map['rank'] as int? ?? 1,
       trend: map['trend'] as String? ?? '=',
-      artist: map['artist'] as String? ?? 'Unknown Artist',
-      title: map['title'] as String? ?? 'Unknown Title',
+      artist: TextEncodingUtils.cleanMojibake(map['artist'] as String? ?? 'Unknown Artist'),
+      title: TextEncodingUtils.cleanMojibake(map['title'] as String? ?? 'Unknown Title'),
       plays: map['plays'] as String? ?? '0',
-      query: map['query'] as String? ?? '',
+      query: TextEncodingUtils.cleanMojibake(map['query'] as String? ?? ''),
       thumbnailUrl: map['thumbnailUrl'] as String?,
       youtubeVideoId: map['youtubeVideoId'] as String?,
     );
@@ -58,6 +60,19 @@ class TrendingTrack {
       return '${(num / 1000).toStringAsFixed(0)}K plays';
     }
     return '$num plays';
+  }
+
+  String get formattedPlaysNumber {
+    final clean = plays.replaceAll(',', '').replaceAll('.', '').trim();
+    final num = int.tryParse(clean);
+    if (num == null) return plays;
+    if (num >= 1000000) {
+      final m = num / 1000000;
+      return '${m.toStringAsFixed(m >= 10 ? 1 : 2)}M';
+    } else if (num >= 1000) {
+      return '${(num / 1000).toStringAsFixed(0)}K';
+    }
+    return '$num';
   }
 
   TrendingTrack copyWith({

@@ -7,6 +7,52 @@ import '../widgets/live_equalizer_bars.dart';
 class QueueScreen extends StatelessWidget {
   const QueueScreen({super.key});
 
+  void _showClearQueueDialog(BuildContext context, PlayerProvider player) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor:
+            isDark ? AppColors.darkSurfaceElevated : Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Clear Queue?',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        content: const Text(
+          'Are you sure you want to remove all upcoming tracks from the queue?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(
+              'Cancel',
+              style: TextStyle(
+                color: isDark
+                    ? AppColors.darkTextSecondary
+                    : AppColors.lightTextSecondary,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              player.clearQueue();
+              Navigator.of(ctx).pop();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+            child: const Text('Clear'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
@@ -46,15 +92,10 @@ class QueueScreen extends StatelessWidget {
         ),
         actions: [
           if (queue.length > 1)
-            TextButton(
-              onPressed: () => player.clearQueue(),
-              child: const Text(
-                'Clear',
-                style: TextStyle(
-                  color: AppColors.primary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline_rounded, size: 22),
+              tooltip: 'Clear Queue',
+              onPressed: () => _showClearQueueDialog(context, player),
             ),
           const SizedBox(width: 8),
         ],

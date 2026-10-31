@@ -1,4 +1,5 @@
 import 'package:http/http.dart' as http;
+import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 import '../models/trending_track.dart';
 import 'kworb_data_snapshot.dart';
@@ -30,12 +31,14 @@ class TrendingService {
         Uri.parse(url),
         headers: {
           'User-Agent': _userAgent,
-          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Language': 'en-US,en;q=0.9,id;q=0.8,ja;q=0.7,ko;q=0.7,ar;q=0.7,th;q=0.7',
+          'Accept-Charset': 'utf-8',
         },
       ).timeout(const Duration(seconds: 8));
 
-      if (res.statusCode == 200 && res.body.isNotEmpty) {
-        final parsed = _parseKworbHtml(res.body, isGlobal);
+      if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
+        final decodedHtml = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+        final parsed = _parseKworbHtml(decodedHtml, isGlobal);
         if (parsed.isNotEmpty) {
           return parsed;
         }
@@ -124,6 +127,9 @@ class TrendingService {
           artist = parts[0].trim();
           title = parts.sublist(1).join(' - ').trim();
         }
+
+        artist = TextEncodingUtils.cleanMojibake(artist);
+        title = TextEncodingUtils.cleanMojibake(title);
 
         final plays = tds[6].replaceAll(tagStrip, '').trim();
 
