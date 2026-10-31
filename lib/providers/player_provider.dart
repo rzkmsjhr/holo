@@ -551,10 +551,11 @@ class PlayerProvider extends ChangeNotifier {
     final key = '${item.artist} - ${item.title}'.toLowerCase();
     _resolvingTrendingKey = key;
     notifyListeners();
+    Track? trackToPlay;
     try {
       final resolved = await _trendingService.resolveTrack(item);
       if (resolved != null) {
-        var trackToPlay = resolved;
+        trackToPlay = resolved;
         if (trackToPlay.thumbnailUrl.isEmpty) {
           final art = item.thumbnailUrl ??
               await _artworkService.getArtwork(item.artist, item.title);
@@ -564,11 +565,17 @@ class PlayerProvider extends ChangeNotifier {
         }
         _updateAllMatchingTrackArtworks(
             item.artist, item.title, trackToPlay.thumbnailUrl);
-        await playTrack(trackToPlay);
       }
-    } catch (_) {}
-    _resolvingTrendingKey = null;
-    notifyListeners();
+    } catch (_) {
+    } finally {
+      // Clear resolving state as soon as the lookup finishes
+      _resolvingTrendingKey = null;
+      notifyListeners();
+    }
+
+    if (trackToPlay != null) {
+      await playTrack(trackToPlay);
+    }
   }
 
   Future<void> loadPlaylists() async {

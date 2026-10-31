@@ -1025,7 +1025,6 @@ class _HomeScreenState extends State<HomeScreen> {
       itemBuilder: (context, index) {
         final item = items[index];
         final key = '${item.artist} - ${item.title}'.toLowerCase();
-        final isResolving = player.resolvingTrendingKey == key;
         final currentT = player.currentTrack;
         final isCurrent = currentT != null &&
             (currentT.title.toLowerCase() == item.title.toLowerCase() ||
@@ -1035,6 +1034,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     currentT.title
                         .toLowerCase()
                         .contains(item.title.toLowerCase())));
+        final isResolving = player.resolvingTrendingKey == key && !isCurrent;
 
         return _buildTrendingTile(
           context: context,
