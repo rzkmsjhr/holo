@@ -17,15 +17,18 @@ class KuwoService {
     if (clean.isEmpty) return [];
 
     try {
-      final res = await http.post(
-        Uri.parse(searchUrl),
-        headers: {
-          'User-Agent': userAgent,
-          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-          'Accept': 'application/json, text/plain, */*',
-        },
-        body: 'platform=kuwo&keyword=${Uri.encodeQueryComponent(clean)}&page=1&size=$size',
-      );
+      final res = await http
+          .post(
+            Uri.parse(searchUrl),
+            headers: {
+              'User-Agent': userAgent,
+              'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+              'Accept': 'application/json, text/plain, */*',
+            },
+            body:
+                'platform=kuwo&keyword=${Uri.encodeQueryComponent(clean)}&page=1&size=$size',
+          )
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) return [];
 
@@ -40,6 +43,32 @@ class KuwoService {
     }
   }
 
+  /// Extracts the highest-bitrate FLAC option from a Kuwo candidate's minfo list.
+  /// Returns null if the candidate does not offer a lossless FLAC stream.
+  String? extractFlacBitrate(Map<String, dynamic> candidate) {
+    final minfos = candidate['minfo'];
+    if (minfos is! List) return null;
+
+    int bestBitrate = 0;
+    String? bestBitrateStr;
+
+    for (final m in minfos) {
+      if (m is Map) {
+        final fmt = m['format']?.toString().trim().toLowerCase() ?? '';
+        if (fmt == 'flac') {
+          final brStr = m['bitrate']?.toString().trim() ?? '2000';
+          final brVal = int.tryParse(brStr) ?? 2000;
+          if (brVal >= bestBitrate) {
+            bestBitrate = brVal;
+            bestBitrateStr = brStr;
+          }
+        }
+      }
+    }
+
+    return bestBitrateStr;
+  }
+
   /// Resolves the direct FLAC CDN stream URL from Kuwo
   Future<String?> getFlacStreamUrl({
     required String songId,
@@ -52,21 +81,35 @@ class KuwoService {
       final body =
           'platform=kuwo&songid=${Uri.encodeComponent(songId)}&format=flac&bitrate=${Uri.encodeComponent(bitrate)}&time=${Uri.encodeComponent(timeStr)}&sign=${Uri.encodeComponent(sign)}';
 
-      final res = await http.post(
-        Uri.parse(getUrlEndpoint),
-        headers: {
-          'User-Agent': userAgent,
-          'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
-        },
-        body: body,
-      );
+      final res = await http
+          .post(
+            Uri.parse(getUrlEndpoint),
+            headers: {
+              'User-Agent': userAgent,
+              'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8',
+            },
+            body: body,
+          )
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) return null;
 
       final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
       final data = jsonDecode(decoded);
       if (data['code'] == 0 && data['data']?['url'] != null) {
-        return data['data']['url'] as String;
+        final url = data['data']['url'].toString().trim();
+        final respFormat =
+            data['data']?['format']?.toString().trim().toLowerCase();
+        if (url.isEmpty) return null;
+        if (respFormat != null &&
+            respFormat.isNotEmpty &&
+            respFormat != 'flac') {
+          return null;
+        }
+        if (!url.toLowerCase().contains('.flac') && respFormat != 'flac') {
+          return null;
+        }
+        return url;
       }
       return null;
     } catch (_) {
@@ -83,6 +126,9 @@ class KuwoService {
       final id = c['id']?.toString() ?? '';
       if (id.isEmpty) continue;
 
+      final flacBitrate = extractFlacBitrate(c);
+      if (flacBitrate == null) continue;
+
       final name = c['name']?.toString() ?? 'Unknown';
       final artist = c['artist']?.toString() ?? 'Unknown Artist';
       final albumName = c['album_name']?.toString() ?? '';
@@ -90,17 +136,6 @@ class KuwoService {
       final dur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
       final time = c['time'];
       final sign = c['sign']?.toString() ?? '';
-
-      // Check for FLAC in minfo
-      final List? minfos = c['minfo'] as List?;
-      String bitrate = '2000';
-      if (minfos != null) {
-        final flacs = minfos
-            .where((m) => m['format']?.toString().toLowerCase() == 'flac');
-        if (flacs.isNotEmpty) {
-          bitrate = flacs.first['bitrate']?.toString() ?? '2000';
-        }
-      }
 
       tracks.add(Track(
         id: 'kuwo_$id',
@@ -119,7 +154,7 @@ class KuwoService {
           'songid': id,
           'time': time,
           'sign': sign,
-          'bitrate': bitrate,
+          'bitrate': flacBitrate,
         },
       ));
     }

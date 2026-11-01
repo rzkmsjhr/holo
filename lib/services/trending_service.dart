@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 import '../models/trending_track.dart';
+import 'hifi_matcher.dart';
 import 'kworb_data_snapshot.dart';
 import 'youtube_music_service.dart';
 
@@ -62,12 +63,31 @@ class TrendingService {
       final searchResults = await _ytmService.searchSongs(query);
 
       if (searchResults.isNotEmpty) {
-        // Pick best matching track
-        final match = searchResults.firstWhere(
-          (t) => _matchesArtistOrTitle(t, item.artist, item.title),
-          orElse: () => searchResults.first,
-        );
+        Track? bestMatch;
+        int bestScore = -1;
 
+        for (final cand in searchResults) {
+          int score = 0;
+          if (HifiMatcher.doesArtistMatch(item.artist, cand.artist, item.title)) {
+            score += 50;
+          }
+          final cClean = HifiMatcher.cleanString(cand.title);
+          final tClean = HifiMatcher.cleanString(item.title);
+          if (cClean == tClean) {
+            score += 100;
+          } else if (cClean.contains(tClean) || tClean.contains(cClean)) {
+            score += 60;
+          }
+          if (HifiMatcher.isEligibleTrack(cand)) {
+            score += 30;
+          }
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = cand;
+          }
+        }
+
+        final match = bestMatch ?? searchResults.first;
         final resolved = match.copyWith(
           title: item.title,
           artist: item.artist,
@@ -85,17 +105,6 @@ class TrendingService {
     final fallback = item.toTrack();
     _resolvedCache[cacheKey] = fallback;
     return fallback;
-  }
-
-  bool _matchesArtistOrTitle(Track cand, String targetArtist, String targetTitle) {
-    final cArtist = cand.artist.toLowerCase();
-    final cTitle = cand.title.toLowerCase();
-    final tArtist = targetArtist.toLowerCase();
-    final tTitle = targetTitle.toLowerCase();
-
-    final artistMatch = cArtist.contains(tArtist) || tArtist.contains(cArtist);
-    final titleMatch = cTitle.contains(tTitle) || tTitle.contains(cTitle);
-    return artistMatch || titleMatch;
   }
 
   List<TrendingTrack> _parseKworbHtml(String html, bool isGlobal) {

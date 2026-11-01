@@ -190,6 +190,7 @@ class PlayerProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(saved);
         _likedTracks = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
+            .map(_sanitizeTrack)
             .toList();
         notifyListeners();
       }
@@ -261,6 +262,27 @@ class PlayerProvider extends ChangeNotifier {
     );
   }
 
+  Track _sanitizeTrack(Track t) {
+    if (!HifiMatcher.isEligibleTrack(t)) {
+      return t.copyWith(
+        flacStreamUrl: null,
+        audioSource: 'youtube',
+        isLossless: false,
+        audioFormat: 'YouTube Audio (160kbps)',
+      );
+    }
+    final v = t.extraData?['hifiVersion'];
+    if (t.isLossless && (v == null || v != HifiMatcher.matcherVersion)) {
+      return t.copyWith(
+        flacStreamUrl: null,
+        audioSource: 'youtube',
+        isLossless: false,
+        audioFormat: 'YouTube Audio (160kbps)',
+      );
+    }
+    return t;
+  }
+
   void _initSavedPlayerState() async {
     _queue = [];
     _currentTrack = null;
@@ -275,6 +297,7 @@ class PlayerProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(savedRecent);
         _recentlyPlayed = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
+            .map(_sanitizeTrack)
             .toList();
       }
 
@@ -284,6 +307,7 @@ class PlayerProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(savedQueue);
         _queue = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
+            .map(_sanitizeTrack)
             .toList();
       }
       final savedIndex = prefs.getInt(_lastIndexKey) ?? 0;
@@ -295,7 +319,7 @@ class PlayerProvider extends ChangeNotifier {
       final savedTrack = prefs.getString(_lastTrackKey);
       if (savedTrack != null && savedTrack.isNotEmpty) {
         final Map<String, dynamic> trackJson = jsonDecode(savedTrack);
-        final track = Track.fromJson(trackJson);
+        final track = _sanitizeTrack(Track.fromJson(trackJson));
         _currentTrack = track;
         _duration = Duration(seconds: track.durationSeconds);
         _position = Duration.zero;
@@ -346,6 +370,19 @@ class PlayerProvider extends ChangeNotifier {
       _recentlyPlayed!.removeLast();
     }
     _persistPlayerState();
+  }
+
+  void _updateRecentlyPlayed(Track updated) {
+    if (_recentlyPlayed == null) return;
+    final idx = _recentlyPlayed!.indexWhere((t) =>
+        (t.youtubeVideoId ?? t.id) == (updated.youtubeVideoId ?? updated.id) ||
+        (t.title.toLowerCase().trim() == updated.title.toLowerCase().trim() &&
+            t.artist.toLowerCase().trim() == updated.artist.toLowerCase().trim()));
+    if (idx != -1) {
+      _recentlyPlayed![idx] = updated;
+      _persistPlayerState();
+      notifyListeners();
+    }
   }
 
   void _updateAllMatchingTrackArtworks(
@@ -673,39 +710,41 @@ class PlayerProvider extends ChangeNotifier {
 
   /// Condition 1: When a track is going to be played (at all states)
   Future<void> playTrack(Track track) async {
-    _currentTrack = track;
-    _addToRecentlyPlayed(track);
-    _tasteProfile.recordPlay(track);
+    final sanitizedTrack = _sanitizeTrack(track);
+    _currentTrack = sanitizedTrack;
+    _addToRecentlyPlayed(sanitizedTrack);
+    _tasteProfile.recordPlay(sanitizedTrack);
     _playbackError = null;
-    _currentIndex = _queue.indexOf(track);
+    _currentIndex = _queue.indexOf(sanitizedTrack);
     if (_currentIndex == -1) {
       // New song selected from outside queue: seed a fresh queue around this track
-      _queue = [track];
+      _queue = [sanitizedTrack];
       _currentIndex = 0;
     }
     _persistPlayerState();
-    _duration = Duration(seconds: track.durationSeconds);
+    _duration = Duration(seconds: sanitizedTrack.durationSeconds);
     _position = Duration.zero;
     _isBuffering = true;
 
     // Check connectivity before network resolution
-    if (!isOnline && (track.flacStreamUrl == null || track.flacStreamUrl!.isEmpty)) {
-      _playbackError = 'No internet connection. Reconnect to stream "${track.title}".';
+    if (!isOnline && (sanitizedTrack.flacStreamUrl == null || sanitizedTrack.flacStreamUrl!.isEmpty)) {
+      _playbackError = 'No internet connection. Reconnect to stream "${sanitizedTrack.title}".';
       _isBuffering = false;
       notifyListeners();
       return;
     }
 
     // Resolve missing artwork in background
-    if (track.thumbnailUrl.isEmpty) {
-      _artworkService.getArtwork(track.artist, track.title).then((art) {
+    if (sanitizedTrack.thumbnailUrl.isEmpty) {
+      _artworkService.getArtwork(sanitizedTrack.artist, sanitizedTrack.title).then((art) {
         if (art != null && art.isNotEmpty) {
-          final withArt = track.copyWith(thumbnailUrl: art);
-          if (_currentTrack?.id == track.id) {
+          final withArt = sanitizedTrack.copyWith(thumbnailUrl: art);
+          if (_currentTrack?.id == sanitizedTrack.id) {
             _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
           }
           _updateTrackInQueue(withArt);
-          _updateAllMatchingTrackArtworks(track.artist, track.title, art);
+          _updateRecentlyPlayed(withArt);
+          _updateAllMatchingTrackArtworks(sanitizedTrack.artist, sanitizedTrack.title, art);
         }
       });
     }
@@ -715,15 +754,15 @@ class PlayerProvider extends ChangeNotifier {
     _currentLyrics = [];
     _isLoadingLyrics = true;
     notifyListeners();
-    _checkLyricsForTrack(track);
+    _checkLyricsForTrack(sanitizedTrack);
 
     // 1. If Hi-Fi is disabled, stream strictly via YouTube
     if (!_isHifiEnabled) {
-      final vId = track.youtubeVideoId ?? track.id;
+      final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
       final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
 
       if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
-        final ytTrack = track.copyWith(
+        final ytTrack = sanitizedTrack.copyWith(
           flacStreamUrl: ytStreamUrl,
           audioSource: 'youtube',
           isLossless: false,
@@ -731,12 +770,13 @@ class PlayerProvider extends ChangeNotifier {
         );
         _currentTrack = ytTrack;
         _updateTrackInQueue(ytTrack);
+        _updateRecentlyPlayed(ytTrack);
         notifyListeners();
         await _playStream(ytStreamUrl);
       } else {
         _playbackError = !isOnline
             ? 'No internet connection. Reconnect to stream.'
-            : 'Unable to stream "${track.title}". Tap to retry.';
+            : 'Unable to stream "${sanitizedTrack.title}". Tap to retry.';
         _isBuffering = false;
         notifyListeners();
       }
@@ -744,9 +784,11 @@ class PlayerProvider extends ChangeNotifier {
       return;
     }
 
-    // 2. If already elevated to Hi-Fi with a direct stream URL
-    if (track.flacStreamUrl != null && track.flacStreamUrl!.isNotEmpty && track.isLossless) {
-      await _playStream(track.flacStreamUrl!);
+    // 2. If already elevated to Hi-Fi with a direct stream URL and matches current matcher version
+    if (sanitizedTrack.flacStreamUrl != null &&
+        sanitizedTrack.flacStreamUrl!.isNotEmpty &&
+        sanitizedTrack.isLossless) {
+      await _playStream(sanitizedTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
       _triggerEndlessPlayIfNeeded();
       return;
     }
@@ -756,22 +798,23 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
 
     // Check Hi-Fi: Kuwo (Top Priority) -> Monochrome (Fallback) -> YouTube (Final Fallback)
-    final hifiTrack = await _hifiMatcher.matchToHifi(track);
+    final hifiTrack = await _hifiMatcher.matchToHifi(sanitizedTrack);
     _isHifiResolving = false;
 
     if (hifiTrack != null && hifiTrack.flacStreamUrl != null) {
       // Elevated to Hi-Fi FLAC
       _currentTrack = hifiTrack;
       _updateTrackInQueue(hifiTrack);
+      _updateRecentlyPlayed(hifiTrack);
       notifyListeners();
-      await _playStream(hifiTrack.flacStreamUrl!);
+      await _playStream(hifiTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
     } else {
       // Fallback: YouTube direct audio extraction
-      final vId = track.youtubeVideoId ?? track.id;
+      final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
       final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
 
       if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
-        final ytTrack = track.copyWith(
+        final ytTrack = sanitizedTrack.copyWith(
           flacStreamUrl: ytStreamUrl,
           audioSource: 'youtube',
           isLossless: false,
@@ -779,12 +822,13 @@ class PlayerProvider extends ChangeNotifier {
         );
         _currentTrack = ytTrack;
         _updateTrackInQueue(ytTrack);
+        _updateRecentlyPlayed(ytTrack);
         notifyListeners();
         await _playStream(ytStreamUrl);
       } else {
         _playbackError = !isOnline
             ? 'No internet connection. Reconnect to stream.'
-            : 'Unable to stream "${track.title}". Tap to retry.';
+            : 'Unable to stream "${sanitizedTrack.title}". Tap to retry.';
         _isBuffering = false;
         notifyListeners();
       }
@@ -793,12 +837,34 @@ class PlayerProvider extends ChangeNotifier {
     _triggerEndlessPlayIfNeeded();
   }
 
-  Future<void> _playStream(String url) async {
+  Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
     try {
       await _audioPlayer.setUrl(url);
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
     } catch (e) {
+      if (fallbackYtTrack != null) {
+        final vId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
+        final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
+        if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
+          final downgraded = fallbackYtTrack.copyWith(
+            flacStreamUrl: ytStreamUrl,
+            audioSource: 'youtube',
+            isLossless: false,
+            audioFormat: 'YouTube Audio (160kbps)',
+          );
+          _currentTrack = downgraded;
+          _updateTrackInQueue(downgraded);
+          _updateRecentlyPlayed(downgraded);
+          notifyListeners();
+          try {
+            await _audioPlayer.setUrl(ytStreamUrl);
+            await _audioPlayer.setVolume(1.0);
+            await _audioPlayer.play();
+            return;
+          } catch (_) {}
+        }
+      }
       _playbackError = !isOnline
           ? 'Connection lost while streaming. Tap to retry.'
           : 'Playback error: audio unavailable. Tap to retry.';
@@ -816,14 +882,16 @@ class PlayerProvider extends ChangeNotifier {
 
   /// Condition 2: When songs are added to the queue
   void addToQueue(Track track) {
-    _queue.add(track);
+    final sanitized = _sanitizeTrack(track);
+    _queue.add(sanitized);
     _persistPlayerState();
     notifyListeners();
-    _resolveTrackHiFiInBackground(track);
+    _resolveTrackHiFiInBackground(sanitized);
   }
 
   void addTracksToQueue(List<Track> tracks) {
-    _queue.addAll(tracks);
+    final sanitizedList = tracks.map(_sanitizeTrack).toList();
+    _queue.addAll(sanitizedList);
     _persistPlayerState();
     notifyListeners();
     _resolveQueueHiFiInBackground();
@@ -839,10 +907,11 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _resolveTrackHiFiInBackground(Track track) {
-    if (!_isHifiEnabled) return;
+    if (!_isHifiEnabled || !HifiMatcher.isEligibleTrack(track)) return;
     _hifiMatcher.matchToHifi(track).then((hifi) {
       if (hifi != null) {
         _updateTrackInQueue(hifi);
+        _updateRecentlyPlayed(hifi);
         if (_currentTrack?.id == track.id) {
           _currentTrack = hifi;
         }

@@ -847,7 +847,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                   },
                                 ),
                                 const SizedBox(height: 4),
-                                // FLAC Pill directly below love icon
+                                // Format / FLAC Pill directly below love icon
                                 Container(
                                   padding: const EdgeInsets.symmetric(
                                       horizontal: 8, vertical: 3),
@@ -865,24 +865,26 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                   child: Row(
                                     mainAxisSize: MainAxisSize.min,
                                     children: [
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(
-                                            horizontal: 4, vertical: 1),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.accent,
-                                          borderRadius:
-                                              BorderRadius.circular(3),
-                                        ),
-                                        child: const Text(
-                                          'FLAC',
-                                          style: TextStyle(
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w800,
-                                            color: Color(0xFF0A0C10),
+                                      if (track.isLossless) ...[
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 4, vertical: 1),
+                                          decoration: BoxDecoration(
+                                            color: AppColors.accent,
+                                            borderRadius:
+                                                BorderRadius.circular(3),
+                                          ),
+                                          child: const Text(
+                                            'FLAC',
+                                            style: TextStyle(
+                                              fontSize: 8,
+                                              fontWeight: FontWeight.w800,
+                                              color: Color(0xFF0A0C10),
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                      const SizedBox(width: 5),
+                                        const SizedBox(width: 5),
+                                      ],
                                       Text(
                                         track.isLossless
                                             ? ((track.audioFormat ??

@@ -117,13 +117,15 @@ class YouTubeMusicService {
               if (vId.isNotEmpty && title.isNotEmpty && vId != videoId) {
                 tracks.add(Track(
                   id: vId,
-                  title: title,
-                  artist: artist.isNotEmpty ? artist : 'Various Artists',
+                  title: TextEncodingUtils.cleanMojibake(title),
+                  artist: TextEncodingUtils.cleanMojibake(
+                      artist.isNotEmpty ? artist : 'Various Artists'),
                   thumbnailUrl: Track.toHighResUrl(thumb),
                   durationSeconds: _parseDuration(durStr),
                   youtubeVideoId: vId,
                   audioSource: 'youtube',
                   isLossless: false,
+                  extraData: const {'itemType': 'song'},
                 ));
               }
             }
@@ -186,6 +188,7 @@ class YouTubeMusicService {
           ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'];
       String artist = 'Unknown Artist';
       int durationSecs = 0;
+      String itemType = 'song';
 
       if (flex1 != null && flex1 is List) {
         final List<String> texts = flex1
@@ -196,11 +199,36 @@ class YouTubeMusicService {
         final full = texts.join();
         final parts = full.split(' • ');
         if (parts.isNotEmpty) {
-          artist = parts[0].trim();
+          int artistIdx = 0;
+          final first = parts[0].toLowerCase().trim();
+          if (first == 'song') {
+            itemType = 'song';
+            artistIdx = 1;
+          } else if (first == 'video') {
+            itemType = 'video';
+            artistIdx = 1;
+          } else if (first == 'single' || first == 'album' || first == 'ep') {
+            artistIdx = 1;
+          }
+
+          if (parts.length > artistIdx) {
+            artist = parts[artistIdx].trim();
+          }
         }
         if (parts.length > 1) {
           final last = parts.last.trim();
           durationSecs = _parseDuration(last);
+        }
+      }
+
+      // Check fixedColumns for explicit duration
+      final fixed0 = item['fixedColumns']?[0]
+          ?['musicResponsiveListItemFixedColumnRenderer']?['text']?['runs'];
+      if (fixed0 != null && fixed0 is List && fixed0.isNotEmpty) {
+        final dStr = fixed0[0]['text']?.toString() ?? '';
+        final dSecs = _parseDuration(dStr);
+        if (dSecs > 0) {
+          durationSecs = dSecs;
         }
       }
 
@@ -213,13 +241,14 @@ class YouTubeMusicService {
 
       return Track(
         id: videoId,
-        title: title,
-        artist: artist,
+        title: TextEncodingUtils.cleanMojibake(title),
+        artist: TextEncodingUtils.cleanMojibake(artist),
         thumbnailUrl: Track.toHighResUrl(thumbUrl),
-        durationSeconds: durationSecs > 0 ? durationSecs : 210,
+        durationSeconds: durationSecs > 0 ? durationSecs : 0,
         youtubeVideoId: videoId,
         audioSource: 'youtube',
         isLossless: false,
+        extraData: {'itemType': itemType},
       );
     } catch (_) {
       return null;
