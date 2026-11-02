@@ -70,6 +70,94 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     _animController?.forward();
   }
 
+  void _showDebuggerLogsModal(BuildContext context, PlayerProvider player) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F1117),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Container(
+          height: MediaQuery.of(ctx).size.height * 0.75,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Stream Diagnostic Logs',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    onPressed: () => Navigator.of(ctx).pop(),
+                  ),
+                ],
+              ),
+              const Divider(color: Colors.white12),
+              Expanded(
+                child: player.debugLogs.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No logs recorded yet. Play a song to record stream events.',
+                          style: TextStyle(color: Colors.white54, fontSize: 13),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: player.debugLogs.length,
+                        itemBuilder: (context, i) {
+                          final log = player.debugLogs[i];
+                          final isErr = log.contains('error') ||
+                              log.contains('failed') ||
+                              log.contains('FAILURE') ||
+                              log.contains('403') ||
+                              log.contains('Exception');
+                          final isSuccess = log.contains('SUCCESS') || log.contains('succeeded');
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 2.5),
+                            child: Text(
+                              log,
+                              style: TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 11,
+                                height: 1.3,
+                                color: isErr
+                                    ? const Color(0xFFF87171)
+                                    : (isSuccess
+                                        ? const Color(0xFF4ADE80)
+                                        : Colors.white70),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _scrollToCenter(int index) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
@@ -1092,6 +1180,25 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                       fontSize: 12,
                                       color: Colors.white,
                                       fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                                GestureDetector(
+                                  onTap: () => _showDebuggerLogsModal(context, player),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: const Text(
+                                      'Logs',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.white,
+                                      ),
                                     ),
                                   ),
                                 ),

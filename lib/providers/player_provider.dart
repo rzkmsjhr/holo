@@ -81,6 +81,22 @@ class PlayerProvider extends ChangeNotifier {
   final Set<String> _failedCandidateIdsForTrack = {};
   String? _failedTrackKey;
 
+  // Real-time debugger and diagnostic logs
+  final List<String> _debugLogs = [];
+  List<String> get debugLogs => List.unmodifiable(_debugLogs);
+
+  void logDebug(String message) {
+    final now = DateTime.now();
+    final time = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    final entry = '[$time] $message';
+    _debugLogs.add(entry);
+    if (_debugLogs.length > 250) {
+      _debugLogs.removeAt(0);
+    }
+    debugPrint(entry);
+    notifyListeners();
+  }
+
   // Getters
   Track? get currentTrack => _currentTrack;
   bool get isPlaying => _isPlaying;
@@ -158,6 +174,8 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   PlayerProvider() {
+    _ytResolver.onLog = logDebug;
+    logDebug('Pulse Audio Player initialized. Diagnostic logging active.');
     _initConnectivity();
     _initAudioListeners();
     _initSavedPlayerState();
@@ -260,6 +278,7 @@ class PlayerProvider extends ChangeNotifier {
     _eventSub = _audioPlayer.playbackEventStream.listen(
       (event) {},
       onError: (Object e, StackTrace st) {
+        logDebug('playbackEventStream onError: $e');
         _handlePlaybackFailure(e);
       },
     );
@@ -718,6 +737,7 @@ class PlayerProvider extends ChangeNotifier {
     _failedTrackKey = null;
 
     final sanitizedTrack = _sanitizeTrack(track);
+    logDebug('playTrack: "${sanitizedTrack.title}" by "${sanitizedTrack.artist}" (id: ${sanitizedTrack.id}, ytVideoId: ${sanitizedTrack.youtubeVideoId})');
     _currentTrack = sanitizedTrack;
     _addToRecentlyPlayed(sanitizedTrack);
     _tasteProfile.recordPlay(sanitizedTrack);
@@ -856,26 +876,37 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
     try {
+      final cleanUrl = url.contains('?') ? '${url.substring(0, url.indexOf('?'))}?...' : url;
+      logDebug('_playStream: attempting setUrl with $cleanUrl');
       await _audioPlayer.stop();
       await _audioPlayer.setUrl(url);
+      logDebug('_playStream: setUrl succeeded. Setting volume and playing...');
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
+      logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
+      logDebug('_playStream: caught exception: $e');
       await _handlePlaybackFailure(e);
     }
   }
 
   Future<void> _handlePlaybackFailure(Object error) async {
-    if (_isAttemptingCandidateFallback) return;
+    logDebug('_handlePlaybackFailure: entered with error: $error');
+    if (_isAttemptingCandidateFallback) {
+      logDebug('_handlePlaybackFailure: already attempting candidate fallback, ignoring re-entrant call.');
+      return;
+    }
 
     final track = _currentTrack;
     if (track == null) {
+      logDebug('_handlePlaybackFailure: currentTrack is null.');
       _isBuffering = false;
       notifyListeners();
       return;
     }
 
     if (!isOnline) {
+      logDebug('_handlePlaybackFailure: offline status detected.');
       _isBuffering = false;
       _playbackError = 'No internet connection. Reconnect to stream.';
       notifyListeners();
@@ -886,6 +917,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_failedTrackKey != trackKey) {
       _failedTrackKey = trackKey;
       _failedCandidateIdsForTrack.clear();
+      logDebug('_handlePlaybackFailure: reset failed candidate IDs for new trackKey: "$trackKey"');
     }
 
     final currentVid = (track.youtubeVideoId ?? track.id).trim();
@@ -893,10 +925,12 @@ class PlayerProvider extends ChangeNotifier {
         !currentVid.startsWith('track_') &&
         !currentVid.startsWith('trending_')) {
       _failedCandidateIdsForTrack.add(currentVid);
+      logDebug('_handlePlaybackFailure: added currentVid "$currentVid" to failedCandidateIds: $_failedCandidateIdsForTrack');
     }
 
     // 1. If current track was Hi-Fi FLAC that failed, downgrade to YouTube first
     if (track.isLossless) {
+      logDebug('_handlePlaybackFailure: track was Hi-Fi FLAC. Downgrading to YouTube audio stream...');
       _isAttemptingCandidateFallback = true;
       _isBuffering = true;
       _playbackError = null;
@@ -911,6 +945,7 @@ class PlayerProvider extends ChangeNotifier {
         );
 
         if (ytRes.isSuccess && ytRes.url != null) {
+          logDebug('_handlePlaybackFailure: FLAC downgrade successfully resolved YouTube stream for "$currentVid"');
           final downgraded = track.copyWith(
             youtubeVideoId: ytRes.videoId ?? currentVid,
             flacStreamUrl: ytRes.url,
@@ -933,9 +968,11 @@ class PlayerProvider extends ChangeNotifier {
           _playbackError = null;
           notifyListeners();
           return;
+        } else {
+          logDebug('_handlePlaybackFailure: FLAC downgrade to YouTube failed: ${ytRes.errorMessage}');
         }
-      } catch (_) {
-        // Fall through to YouTube candidate fallback
+      } catch (downgradeErr) {
+        logDebug('_handlePlaybackFailure: FLAC downgrade caught error: $downgradeErr');
       } finally {
         _isAttemptingCandidateFallback = false;
       }
@@ -943,6 +980,7 @@ class PlayerProvider extends ChangeNotifier {
 
     // 2. Try alternative YouTube candidate streams (up to 4 candidates)
     if (_failedCandidateIdsForTrack.length <= 4) {
+      logDebug('_handlePlaybackFailure: searching candidate stream for "${track.title}" (failed IDs: $_failedCandidateIdsForTrack)...');
       _isAttemptingCandidateFallback = true;
       _isBuffering = true;
       _playbackError = null;
@@ -956,6 +994,7 @@ class PlayerProvider extends ChangeNotifier {
         );
 
         if (altRes.isSuccess && altRes.url != null && altRes.videoId != null) {
+          logDebug('_handlePlaybackFailure: SUCCESS: Candidate [${altRes.videoId}] resolved! Applying and playing...');
           _failedCandidateIdsForTrack.add(altRes.videoId!);
 
           final altTrack = track.copyWith(
@@ -980,15 +1019,18 @@ class PlayerProvider extends ChangeNotifier {
           _playbackError = null;
           notifyListeners();
           return;
+        } else {
+          logDebug('_handlePlaybackFailure: Candidate search returned failure: ${altRes.errorMessage}');
         }
-      } catch (_) {
-        // Candidate attempt failed, fall through to error notification
+      } catch (candidateErr) {
+        logDebug('_handlePlaybackFailure: Candidate attempt threw error: $candidateErr');
       } finally {
         _isAttemptingCandidateFallback = false;
       }
     }
 
     // 3. All candidates exhausted: present a human-friendly error message
+    logDebug('_handlePlaybackFailure: All candidates exhausted or failed. Setting playback error.');
     _isBuffering = false;
     _playbackError = _formatPlaybackError(error, track);
     notifyListeners();
