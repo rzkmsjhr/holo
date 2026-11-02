@@ -15,17 +15,7 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  int _selectedSegment = 0; // 0 = Saved, 1 = Queue
-  String _selectedFilter = 'All';
-
-  final List<String> _filters = [
-    'All',
-    'Liked',
-    'Playlists',
-    'Albums',
-    'Artists',
-    'Downloaded',
-  ];
+  int _selectedSegment = 0; // 0 = Playlists, 1 = Liked, 2 = Queue
 
   @override
   Widget build(BuildContext context) {
@@ -112,67 +102,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-
-            // Filter Chips (Only shown on Saved Playlists)
-            if (_selectedSegment == 0)
-              SizedBox(
-                height: 36,
-                child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: _filters.length,
-                  itemBuilder: (context, index) {
-                    final filter = _filters[index];
-                    final isSelected = filter == _selectedFilter;
-                    return GestureDetector(
-                      onTap: () {
-                        if (filter == 'Liked') {
-                          setState(() => _selectedSegment = 1);
-                        } else {
-                          setState(() => _selectedFilter = filter);
-                        }
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(right: 8),
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? (isDark
-                                  ? AppColors.darkTextPrimary
-                                  : AppColors.lightTextPrimary)
-                              : (isDark
-                                  ? AppColors.darkSurface
-                                  : AppColors.lightSurface),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: isDark
-                                ? AppColors.darkBorder
-                                : AppColors.lightBorder,
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            filter,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: isSelected
-                                  ? (isDark
-                                      ? AppColors.darkCanvas
-                                      : AppColors.lightCanvas)
-                                  : (isDark
-                                      ? AppColors.darkTextSecondary
-                                      : AppColors.lightTextSecondary),
-                            ),
-                          ),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
+            const SizedBox(height: 8),
 
             // Content Area
             Expanded(
@@ -777,39 +707,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     PlayerProvider player,
     bool isDark,
   ) {
-    // Other filters handling
-    if (_selectedFilter == 'Downloaded') {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.download_done_rounded,
-              size: 48,
-              color: isDark
-                  ? AppColors.darkTextTertiary
-                  : AppColors.lightTextTertiary,
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'No downloaded songs',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Downloaded music will appear here for offline playback.',
-              style: TextStyle(
-                fontSize: 12,
-                color: isDark
-                    ? AppColors.darkTextSecondary
-                    : AppColors.lightTextSecondary,
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
     final playlists = player.playlists;
 
     if (playlists.isEmpty) {
@@ -875,7 +772,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    final heroPlaylist = playlists.first;
+    final heroPlaylist = player.recentPlaylist ?? playlists.first;
     final heroCover = heroPlaylist.coverUrl ??
         (heroPlaylist.tracks.isNotEmpty
             ? heroPlaylist.tracks.first.highResThumbnailUrl
@@ -948,11 +845,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        'HEAVY ROTATION',
+                        'RECENTLY PLAYED PLAYLIST',
                         style: TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w800,
-                          letterSpacing: 1.0,
+                          letterSpacing: 0.8,
                           color: AppColors.accent,
                         ),
                       ),

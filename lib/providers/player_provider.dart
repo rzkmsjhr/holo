@@ -53,6 +53,7 @@ class PlayerProvider extends ChangeNotifier {
   bool? _isLoadingTrending = false;
   String? _resolvingTrendingKey;
   List<Playlist>? _playlists = [];
+  String? _recentPlaylistId;
   int _currentIndex = 0;
   bool _isShuffled = false;
   int _repeatMode = 0; // 0 = off, 1 = all, 2 = one
@@ -156,6 +157,20 @@ class PlayerProvider extends ChangeNotifier {
   bool get isLoadingTrending => _isLoadingTrending ?? false;
   String? get resolvingTrendingKey => _resolvingTrendingKey;
   List<Playlist> get playlists => _playlists ?? const [];
+  String? get recentPlaylistId => _recentPlaylistId;
+  Playlist? get recentPlaylist {
+    if (_playlists == null || _playlists!.isEmpty) return null;
+    if (_recentPlaylistId != null) {
+      final found =
+          _playlists!.where((p) => p.id == _recentPlaylistId).firstOrNull;
+      if (found != null) return found;
+    }
+    final sorted = List<Playlist>.from(_playlists!)
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return sorted.first;
+  }
+
+  static const String _recentPlaylistKey = 'holo_recent_playlist_id';
   static const String _likedTracksKey = 'user_liked_tracks_v2';
   static const String _recentlyPlayedKey = 'holo_recently_played_v2';
   static const String _lastTrackKey = 'holo_last_track_v2';
@@ -253,6 +268,10 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _initPlaylists() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _recentPlaylistId = prefs.getString(_recentPlaylistKey);
+    } catch (_) {}
     await loadPlaylists();
   }
 
@@ -746,6 +765,12 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> deletePlaylist(String playlistId) async {
+    if (_recentPlaylistId == playlistId) {
+      _recentPlaylistId = null;
+      SharedPreferences.getInstance().then((prefs) {
+        prefs.remove(_recentPlaylistKey);
+      }).catchError((_) {});
+    }
     await _playlistService.deletePlaylist(playlistId);
     _playlists = await _playlistService.loadPlaylists(sampleCatalog: _queue);
     notifyListeners();
@@ -767,10 +792,15 @@ class PlayerProvider extends ChangeNotifier {
 
   void playPlaylist(Playlist playlist, [int startIndex = 0]) {
     if (playlist.tracks.isEmpty) return;
+    _recentPlaylistId = playlist.id;
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString(_recentPlaylistKey, playlist.id);
+    }).catchError((_) {});
     _queue = List.from(playlist.tracks);
     final idx = startIndex.clamp(0, _queue.length - 1);
     _currentIndex = idx;
     playTrack(_queue[idx]);
+    notifyListeners();
   }
 
   void playTrackList(List<Track> tracks, [int startIndex = 0]) {
