@@ -255,7 +255,16 @@ class PlayerProvider extends ChangeNotifier {
     _eventSub = _audioPlayer.playbackEventStream.listen(
       (event) {},
       onError: (Object e, StackTrace st) {
-        _playbackError = 'Streaming interrupted. Tap to retry.';
+        if (!isOnline) {
+          _playbackError = 'Connection lost during playback. Tap to retry.';
+        } else {
+          final errStr = e.toString().toLowerCase();
+          if (errStr.contains('403') || errStr.contains('forbidden')) {
+            _playbackError = 'Stream expired or access restricted (403). Tap to retry.';
+          } else {
+            _playbackError = 'Playback issue: ${_formatErrorMessage(e)}. Tap to retry.';
+          }
+        }
         _isBuffering = false;
         notifyListeners();
       },
@@ -759,11 +768,16 @@ class PlayerProvider extends ChangeNotifier {
     // 1. If Hi-Fi is disabled, stream strictly via YouTube
     if (!_isHifiEnabled) {
       final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
-      final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
+      final ytRes = await _ytResolver.resolveStreamForTrack(
+        title: sanitizedTrack.title,
+        artist: sanitizedTrack.artist,
+        primaryVideoId: vId,
+      );
 
-      if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
+      if (ytRes.isSuccess && ytRes.url != null) {
         final ytTrack = sanitizedTrack.copyWith(
-          flacStreamUrl: ytStreamUrl,
+          youtubeVideoId: ytRes.videoId ?? vId,
+          flacStreamUrl: ytRes.url,
           audioSource: 'youtube',
           isLossless: false,
           audioFormat: 'YouTube Audio (160kbps)',
@@ -772,11 +786,11 @@ class PlayerProvider extends ChangeNotifier {
         _updateTrackInQueue(ytTrack);
         _updateRecentlyPlayed(ytTrack);
         notifyListeners();
-        await _playStream(ytStreamUrl);
+        await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
         _playbackError = !isOnline
             ? 'No internet connection. Reconnect to stream.'
-            : 'Unable to stream "${sanitizedTrack.title}". Tap to retry.';
+            : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
         _isBuffering = false;
         notifyListeners();
       }
@@ -811,11 +825,16 @@ class PlayerProvider extends ChangeNotifier {
     } else {
       // Fallback: YouTube direct audio extraction
       final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
-      final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
+      final ytRes = await _ytResolver.resolveStreamForTrack(
+        title: sanitizedTrack.title,
+        artist: sanitizedTrack.artist,
+        primaryVideoId: vId,
+      );
 
-      if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
+      if (ytRes.isSuccess && ytRes.url != null) {
         final ytTrack = sanitizedTrack.copyWith(
-          flacStreamUrl: ytStreamUrl,
+          youtubeVideoId: ytRes.videoId ?? vId,
+          flacStreamUrl: ytRes.url,
           audioSource: 'youtube',
           isLossless: false,
           audioFormat: 'YouTube Audio (160kbps)',
@@ -824,11 +843,11 @@ class PlayerProvider extends ChangeNotifier {
         _updateTrackInQueue(ytTrack);
         _updateRecentlyPlayed(ytTrack);
         notifyListeners();
-        await _playStream(ytStreamUrl);
+        await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
         _playbackError = !isOnline
             ? 'No internet connection. Reconnect to stream.'
-            : 'Unable to stream "${sanitizedTrack.title}". Tap to retry.';
+            : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
         _isBuffering = false;
         notifyListeners();
       }
@@ -839,16 +858,30 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
     try {
-      await _audioPlayer.setUrl(url);
+      final audioSource = AudioSource.uri(
+        Uri.parse(url),
+        headers: {
+          'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Referer': 'https://music.youtube.com/',
+        },
+      );
+      await _audioPlayer.setAudioSource(audioSource);
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
     } catch (e) {
-      if (fallbackYtTrack != null) {
+      // 1. If this was a Hi-Fi FLAC stream that failed, downgrade to YouTube Audio
+      if (fallbackYtTrack != null && fallbackYtTrack.isLossless) {
         final vId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
-        final ytStreamUrl = await _ytResolver.getAudioStreamUrl(vId);
-        if (ytStreamUrl != null && ytStreamUrl.isNotEmpty) {
+        final ytRes = await _ytResolver.resolveStreamForTrack(
+          title: fallbackYtTrack.title,
+          artist: fallbackYtTrack.artist,
+          primaryVideoId: vId,
+        );
+        if (ytRes.isSuccess && ytRes.url != null) {
           final downgraded = fallbackYtTrack.copyWith(
-            flacStreamUrl: ytStreamUrl,
+            youtubeVideoId: ytRes.videoId ?? vId,
+            flacStreamUrl: ytRes.url,
             audioSource: 'youtube',
             isLossless: false,
             audioFormat: 'YouTube Audio (160kbps)',
@@ -858,19 +891,104 @@ class PlayerProvider extends ChangeNotifier {
           _updateRecentlyPlayed(downgraded);
           notifyListeners();
           try {
-            await _audioPlayer.setUrl(ytStreamUrl);
+            final ytSource = AudioSource.uri(
+              Uri.parse(ytRes.url!),
+              headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://music.youtube.com/',
+              },
+            );
+            await _audioPlayer.setAudioSource(ytSource);
             await _audioPlayer.setVolume(1.0);
             await _audioPlayer.play();
             return;
-          } catch (_) {}
+          } catch (e2) {
+            e = e2;
+          }
+        }
+      } else if (fallbackYtTrack != null && !fallbackYtTrack.isLossless) {
+        // 2. If YouTube stream itself failed to play (e.g. 403 or unplayable stream):
+        // Automatically search and fallback to alternative YouTube video candidate!
+        final failedId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
+        final altRes = await _ytResolver.resolveAlternativeStream(
+          title: fallbackYtTrack.title,
+          artist: fallbackYtTrack.artist,
+          failedVideoId: failedId,
+        );
+        if (altRes.isSuccess && altRes.url != null) {
+          final altTrack = fallbackYtTrack.copyWith(
+            youtubeVideoId: altRes.videoId,
+            flacStreamUrl: altRes.url,
+            audioSource: 'youtube',
+            isLossless: false,
+            audioFormat: 'YouTube Audio (160kbps)',
+          );
+          _currentTrack = altTrack;
+          _updateTrackInQueue(altTrack);
+          _updateRecentlyPlayed(altTrack);
+          notifyListeners();
+          try {
+            final altSource = AudioSource.uri(
+              Uri.parse(altRes.url!),
+              headers: {
+                'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': 'https://music.youtube.com/',
+              },
+            );
+            await _audioPlayer.setAudioSource(altSource);
+            await _audioPlayer.setVolume(1.0);
+            await _audioPlayer.play();
+            return;
+          } catch (e3) {
+            e = e3;
+          }
         }
       }
-      _playbackError = !isOnline
-          ? 'Connection lost while streaming. Tap to retry.'
-          : 'Playback error: audio unavailable. Tap to retry.';
+
+      _playbackError = _formatPlaybackError(e, fallbackYtTrack ?? _currentTrack);
       _isBuffering = false;
       notifyListeners();
     }
+  }
+
+  String _formatPlaybackError(Object error, Track? track) {
+    if (!isOnline) {
+      return 'No internet connection. Reconnect to stream.';
+    }
+    if (error is PlayerException) {
+      final code = error.code;
+      final msg = error.message;
+      if (code == 403 || (msg != null && msg.contains('403'))) {
+        return 'Stream access restricted (403). Tap retry to load alternative.';
+      }
+      if (msg != null && msg.isNotEmpty) {
+        return 'Playback error: $msg. Tap to retry.';
+      }
+    }
+    final errStr = error.toString().toLowerCase();
+    if (errStr.contains('403') || errStr.contains('forbidden')) {
+      return 'Stream access forbidden (403). Tap retry for alternative.';
+    }
+    if (errStr.contains('unsupported') || errStr.contains('decode')) {
+      return 'Audio format unsupported by device. Tap to retry.';
+    }
+    if (errStr.contains('timeout')) {
+      return 'Audio loading timed out. Tap to retry.';
+    }
+    final clean = _formatErrorMessage(error);
+    final trackName = track?.title ?? 'track';
+    return 'Playback error for "$trackName" ($clean). Tap to retry.';
+  }
+
+  String _formatErrorMessage(Object raw) {
+    var text = raw.toString();
+    text = text.replaceAll(RegExp(r'^(?:Exception|PlatformException|PlayerException):\s*'), '');
+    if (text.length > 45) {
+      text = '${text.substring(0, 42)}...';
+    }
+    return text.isEmpty ? 'stream unavailable' : text;
   }
 
   void _updateTrackInQueue(Track updated) {
@@ -1122,7 +1240,13 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
     await ConnectivityService().checkConnectivity();
     if (_currentTrack != null) {
-      await playTrack(_currentTrack!);
+      // Clear cached stream URL so retry resolves a fresh working stream
+      final resetTrack = _currentTrack!.copyWith(
+        flacStreamUrl: null,
+        audioSource: 'youtube',
+        isLossless: false,
+      );
+      await playTrack(resetTrack);
     }
   }
 
