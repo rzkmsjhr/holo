@@ -11,6 +11,9 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
   VoidCallback? onSkipToPrevious;
   ValueChanged<Duration>? onSeek;
   VoidCallback? onStop;
+  bool _isStopped = false;
+
+  bool get isStopped => _isStopped;
 
   HoloAudioHandler() {
     playbackState.add(
@@ -38,6 +41,7 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
     String? resolvedArtworkUrl,
     Duration? duration,
   }) async {
+    _isStopped = false;
     final vid = track.youtubeVideoId ?? track.id;
     final rawArt = (resolvedArtworkUrl != null && resolvedArtworkUrl.isNotEmpty)
         ? resolvedArtworkUrl
@@ -74,6 +78,12 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
     required Duration position,
     Duration bufferedPosition = Duration.zero,
   }) {
+    // If the handler is marked as stopped, do not re-emit active/ready states unless actively playing
+    if (_isStopped && !isPlaying) {
+      return;
+    }
+    _isStopped = false;
+
     playbackState.add(
       playbackState.value.copyWith(
         controls: [
@@ -101,6 +111,7 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
+    _isStopped = false;
     onPlay?.call();
   }
 
@@ -111,11 +122,13 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> skipToNext() async {
+    _isStopped = false;
     onSkipToNext?.call();
   }
 
   @override
   Future<void> skipToPrevious() async {
+    _isStopped = false;
     onSkipToPrevious?.call();
   }
 
@@ -125,8 +138,25 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
+  Future<void> onTaskRemoved() async {
+    await stop();
+  }
+
+  @override
+  Future<void> onNotificationDeleted() async {
+    await stop();
+  }
+
+  @override
   Future<void> stop() async {
+    _isStopped = true;
     onStop?.call();
+    playbackState.add(
+      playbackState.value.copyWith(
+        processingState: AudioProcessingState.idle,
+        playing: false,
+      ),
+    );
     await super.stop();
   }
 }
@@ -158,7 +188,8 @@ class HoloAudioServiceManager {
           androidNotificationIcon: 'mipmap/ic_launcher',
           androidShowNotificationBadge: false,
           androidNotificationClickStartsActivity: true,
-          androidStopForegroundOnPause: false,
+          androidStopForegroundOnPause: true,
+          androidResumeOnClick: false,
           androidNotificationOngoing: false,
           preloadArtwork: true,
         ),

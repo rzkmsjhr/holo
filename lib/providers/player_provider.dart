@@ -229,8 +229,8 @@ class PlayerProvider extends ChangeNotifier {
     handler.onSkipToNext = () => next();
     handler.onSkipToPrevious = () => previous();
     handler.onSeek = (pos) => seekTo(pos);
-    handler.onStop = () {
-      if (_isPlaying) togglePlayPause();
+    handler.onStop = () async {
+      await stopPlayback();
     };
   }
 
@@ -1504,6 +1504,17 @@ class PlayerProvider extends ChangeNotifier {
         playTrack(_currentTrack!);
       }
     }
+  }
+
+  Future<void> stopPlayback() async {
+    _ytIframeBridge.stop();
+    _isUsingYtIframe = false;
+    try {
+      await _audioPlayer.stop();
+    } catch (_) {}
+    _isPlaying = false;
+    _isBuffering = false;
+    notifyListeners();
   }
 
   Future<void> seekTo(Duration position) async {

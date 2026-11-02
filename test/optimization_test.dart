@@ -84,6 +84,38 @@ void main() {
       expect(playCalled, isTrue);
       expect(nextCalled, isTrue);
     });
+
+    test('HoloAudioHandler onTaskRemoved dismisses notification, stops playback, and transitions to idle', () async {
+      final handler = HoloAudioServiceManager.handler;
+      bool stopCalled = false;
+      handler.onStop = () => stopCalled = true;
+
+      // Simulate active playback
+      handler.syncPlaybackState(
+        isPlaying: true,
+        isBuffering: false,
+        position: const Duration(seconds: 15),
+      );
+      expect(handler.playbackState.value.playing, isTrue);
+      expect(handler.isStopped, isFalse);
+
+      // App is closed / swiped away in task manager
+      await handler.onTaskRemoved();
+
+      expect(stopCalled, isTrue);
+      expect(handler.isStopped, isTrue);
+      expect(handler.playbackState.value.playing, isFalse);
+      expect(handler.playbackState.value.processingState.name, equals('idle'));
+
+      // Lingering player position / state stream events while stopped must not revive ready state
+      handler.syncPlaybackState(
+        isPlaying: false,
+        isBuffering: false,
+        position: const Duration(seconds: 15),
+      );
+      expect(handler.playbackState.value.processingState.name, equals('idle'));
+      expect(handler.playbackState.value.playing, isFalse);
+    });
   });
 
   group('HoloImage Widget Tests', () {

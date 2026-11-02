@@ -54,7 +54,8 @@ class MainNavigationShell extends StatefulWidget {
   State<MainNavigationShell> createState() => _MainNavigationShellState();
 }
 
-class _MainNavigationShellState extends State<MainNavigationShell> {
+class _MainNavigationShellState extends State<MainNavigationShell>
+    with WidgetsBindingObserver {
   int _currentTabIndex = 0;
 
   final List<Widget> _screens = const [
@@ -64,6 +65,25 @@ class _MainNavigationShellState extends State<MainNavigationShell> {
   ];
 
   static const MethodChannel _appChannel = MethodChannel('com.example.holo/app');
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      HoloAudioServiceManager.handler.stop();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
