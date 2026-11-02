@@ -16,10 +16,7 @@ void showAddToSheet(
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
-    backgroundColor: isDark ? const Color(0xFF0F1218) : AppColors.lightSurface,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-    ),
+    backgroundColor: Colors.transparent,
     builder: (sheetContext) {
       return _AddToPlaylistSheet(
         track: track,
@@ -290,7 +287,7 @@ Future<void> showDeletePlaylistDialog(
   );
 }
 
-class _AddToPlaylistSheet extends StatelessWidget {
+class _AddToPlaylistSheet extends StatefulWidget {
   final Track track;
   final bool isDark;
 
@@ -300,288 +297,508 @@ class _AddToPlaylistSheet extends StatelessWidget {
   });
 
   @override
+  State<_AddToPlaylistSheet> createState() => _AddToPlaylistSheetState();
+}
+
+class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
+  bool _isCreating = false;
+  late final TextEditingController _newPlaylistController;
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _newPlaylistController = TextEditingController();
+    _focusNode = FocusNode();
+  }
+
+  @override
+  void dispose() {
+    _newPlaylistController.dispose();
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitNewPlaylist(PlayerProvider player) async {
+    final name = _newPlaylistController.text.trim();
+    if (name.isEmpty) return;
+
+    final playlist = await player.createPlaylist(
+      name,
+      initialTracks: [widget.track],
+    );
+
+    if (mounted) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Created "${playlist.title}" and added song'),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final player = context.watch<PlayerProvider>();
     final playlists = player.playlists;
-    final trackId = track.youtubeVideoId ?? track.id;
+    final trackId = widget.track.youtubeVideoId ?? widget.track.id;
+    final viewInsets = MediaQuery.of(context).viewInsets;
 
-    return DraggableScrollableSheet(
-      initialChildSize: 0.65,
-      minChildSize: 0.35,
-      maxChildSize: 0.9,
-      expand: false,
-      builder: (_, scrollController) {
-        return Column(
-          children: [
-            const SizedBox(height: 10),
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.darkTextTertiary
-                      : AppColors.lightTextTertiary,
-                  borderRadius: BorderRadius.circular(2),
+    return Padding(
+      padding: EdgeInsets.only(bottom: viewInsets.bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: widget.isDark ? const Color(0xFF11141B) : AppColors.lightSurface,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          border: Border(
+            top: BorderSide(
+              color: widget.isDark ? AppColors.darkBorder : AppColors.lightBorder,
+              width: 1,
+            ),
+          ),
+        ),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag Handle
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(top: 10, bottom: 12),
+                  decoration: BoxDecoration(
+                    color: widget.isDark
+                        ? const Color(0xFF333A4D)
+                        : const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
 
-            // Track Header Card
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-              child: Row(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      width: 50,
-                      height: 50,
-                      color: AppColors.secondary,
-                      child: track.thumbnailUrl.isNotEmpty
-                          ? Image.network(
-                              track.highResThumbnailUrl.isNotEmpty
-                                  ? track.highResThumbnailUrl
-                                  : track.thumbnailUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => const Icon(
-                                Icons.music_note,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Icon(Icons.music_note, color: Colors.white),
+              // Track Header Preview Card
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: widget.isDark ? const Color(0xFF161A22) : const Color(0xFFF1F4F9),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: widget.isDark ? const Color(0xFF232838) : const Color(0xFFE2E6EF),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                  child: Row(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Container(
+                          width: 48,
+                          height: 48,
+                          color: widget.isDark
+                              ? const Color(0xFF222736)
+                              : const Color(0xFFE2E6EF),
+                          child: widget.track.thumbnailUrl.isNotEmpty
+                              ? Image.network(
+                                  widget.track.highResThumbnailUrl.isNotEmpty
+                                      ? widget.track.highResThumbnailUrl
+                                      : widget.track.thumbnailUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                    Icons.music_note_rounded,
+                                    color: AppColors.primary,
+                                    size: 24,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.music_note_rounded,
+                                  color: AppColors.primary,
+                                  size: 24,
+                                ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              widget.track.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 5, vertical: 1.5),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'Song',
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.primary,
+                                      letterSpacing: 0.2,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    widget.track.artist,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: widget.isDark
+                                          ? AppColors.darkTextSecondary
+                                          : AppColors.lightTextSecondary,
+                                    ),
+                                  ),
+                                ),
+                                if (widget.track.durationSeconds > 0) ...[
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    widget.track.formattedDuration,
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w500,
+                                      color: widget.isDark
+                                          ? AppColors.darkTextTertiary
+                                          : AppColors.lightTextTertiary,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Queue Actions
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+                child: Column(
+                  children: [
+                    _ActionTile(
+                      isDark: widget.isDark,
+                      icon: Icons.queue_music_rounded,
+                      iconColor: AppColors.primary,
+                      iconBgColor: widget.isDark
+                          ? const Color(0xFF281711)
+                          : const Color(0xFFFFECE5),
+                      title: 'Add to Playing Queue',
+                      subtitle: 'Add song to the end of the current queue',
+                      onTap: () {
+                        player.addToQueue(widget.track);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Added "${widget.track.title}" to queue'),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    _ActionTile(
+                      isDark: widget.isDark,
+                      icon: Icons.playlist_play_rounded,
+                      iconColor: const Color(0xFF10B981),
+                      iconBgColor: widget.isDark
+                          ? const Color(0xFF11261D)
+                          : const Color(0xFFE6F8F0),
+                      title: 'Play Next',
+                      subtitle: 'Plays immediately after the current song',
+                      onTap: () {
+                        player.playNext(widget.track);
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('"${widget.track.title}" will play next'),
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              // Playlist Section Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Playlists',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: widget.isDark
+                            ? AppColors.darkTextPrimary
+                            : AppColors.lightTextPrimary,
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        setState(() {
+                          _isCreating = !_isCreating;
+                          if (_isCreating) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              _focusNode.requestFocus();
+                            });
+                          }
+                        });
+                      },
+                      borderRadius: BorderRadius.circular(20),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isCreating
+                                  ? Icons.close_rounded
+                                  : Icons.add_rounded,
+                              size: 16,
+                              color: AppColors.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _isCreating ? 'Cancel' : 'New Playlist',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Inline Playlist Creator Form
+              if (_isCreating)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 12),
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: widget.isDark
+                          ? const Color(0xFF181D27)
+                          : const Color(0xFFEEF2F8),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: AppColors.primary.withValues(alpha: 0.35),
+                      ),
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                        Expanded(
+                          child: TextField(
+                            controller: _newPlaylistController,
+                            focusNode: _focusNode,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textInputAction: TextInputAction.done,
+                            onSubmitted: (_) => _submitNewPlaylist(player),
+                            decoration: InputDecoration(
+                              hintText: 'Playlist name...',
+                              hintStyle: TextStyle(
+                                fontSize: 13,
+                                color: widget.isDark
+                                    ? AppColors.darkTextTertiary
+                                    : AppColors.lightTextTertiary,
+                              ),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              filled: true,
+                              fillColor: widget.isDark
+                                  ? const Color(0xFF10131A)
+                                  : Colors.white,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 2),
-                        Text(
-                          track.artist,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: isDark
-                                ? AppColors.darkTextSecondary
-                                : AppColors.lightTextSecondary,
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 10),
+                            minimumSize: Size.zero,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            elevation: 0,
+                          ),
+                          onPressed: () => _submitNewPlaylist(player),
+                          child: const Text(
+                            'Create',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                ],
-              ),
-            ),
+                ),
 
-            const Divider(height: 1, thickness: 0.5),
-
-            // Queue Actions
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.queue_music_rounded,
-                  color: AppColors.primary,
-                  size: 20,
-                ),
-              ),
-              title: const Text(
-                'Add to Playing Queue',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                'Add song to the end of the current queue',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isDark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.lightTextSecondary,
-                ),
-              ),
-              onTap: () {
-                player.addToQueue(track);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Added "${track.title}" to queue'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-            ),
-
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.accent.withValues(alpha: 0.15),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.playlist_play_rounded,
-                  color: AppColors.accent,
-                  size: 20,
-                ),
-              ),
-              title: const Text(
-                'Play Next',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-              subtitle: Text(
-                'Plays immediately after the current song',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isDark
-                      ? AppColors.darkTextSecondary
-                      : AppColors.lightTextSecondary,
-                ),
-              ),
-              onTap: () {
-                player.playNext(track);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('"${track.title}" will play next'),
-                    duration: const Duration(seconds: 2),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-            ),
-
-            const Divider(height: 1, thickness: 0.5),
-
-            // Add to Playlist Section Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 16, 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'ADD TO PLAYLIST',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.8,
-                      color: isDark
-                          ? AppColors.darkTextTertiary
-                          : AppColors.lightTextTertiary,
-                    ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      showCreatePlaylistDialog(
-                        context,
-                        player,
-                        initialTrack: track,
-                      );
-                    },
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text(
-                      'New Playlist',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.primary,
+              // Playlist Content: Empty State or Flexible Scrollable List
+              if (playlists.isEmpty && !_isCreating)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 6, 20, 18),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 22, horizontal: 20),
+                    decoration: BoxDecoration(
+                      color: widget.isDark
+                          ? const Color(0xFF141720)
+                          : const Color(0xFFF7F9FC),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: widget.isDark
+                            ? const Color(0xFF1F2432)
+                            : const Color(0xFFE8ECF2),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Playlist items
-            Expanded(
-              child: playlists.isEmpty
-                  ? Center(
-                      child: Text(
-                        'No playlists yet. Tap "New Playlist" above!',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: isDark
-                              ? AppColors.darkTextSecondary
-                              : AppColors.lightTextSecondary,
-                        ),
-                      ),
-                    )
-                  : ListView.builder(
-                      controller: scrollController,
-                      padding: const EdgeInsets.only(bottom: 24),
-                      itemCount: playlists.length,
-                      itemBuilder: (context, index) {
-                        final playlist = playlists[index];
-                        final isInPlaylist = playlist.tracks.any(
-                            (t) => (t.youtubeVideoId ?? t.id) == trackId);
-
-                        return ListTile(
-                          leading: ClipRRect(
-                            borderRadius: BorderRadius.circular(8),
-                            child: Container(
-                              width: 44,
-                              height: 44,
-                              color: AppColors.secondary,
-                              child: playlist.coverUrl != null &&
-                                      playlist.coverUrl!.isNotEmpty
-                                  ? Image.network(
-                                      playlist.coverUrl!,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (_, __, ___) => const Icon(
-                                        Icons.queue_music_rounded,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.queue_music_rounded,
-                                      color: Colors.white,
-                                    ),
-                            ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            color: widget.isDark
+                                ? const Color(0xFF1D2230)
+                                : const Color(0xFFEAF0FA),
+                            shape: BoxShape.circle,
                           ),
-                          title: Text(
-                            playlist.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 14,
+                          child: Icon(
+                            Icons.playlist_add_rounded,
+                            size: 22,
+                            color: widget.isDark
+                                ? AppColors.darkTextSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Text(
+                          'No playlists yet',
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w700,
+                            color: widget.isDark
+                                ? AppColors.darkTextPrimary
+                                : AppColors.lightTextPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Create a playlist to organize your library.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: widget.isDark
+                                ? AppColors.darkTextSecondary
+                                : AppColors.lightTextSecondary,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            setState(() {
+                              _isCreating = true;
+                              WidgetsBinding.instance.addPostFrameCallback((_) {
+                                _focusNode.requestFocus();
+                              });
+                            });
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppColors.primary,
+                            side: const BorderSide(
+                                color: AppColors.primary, width: 1.2),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 7),
+                            minimumSize: Size.zero,
+                          ),
+                          icon: const Icon(Icons.add_rounded, size: 16),
+                          label: const Text(
+                            'Create Playlist',
+                            style: TextStyle(
+                              fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
-                          subtitle: Text(
-                            playlist.formattedTrackCount,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: isDark
-                                  ? AppColors.darkTextSecondary
-                                  : AppColors.lightTextSecondary,
-                            ),
-                          ),
-                          trailing: isInPlaylist
-                              ? const Icon(
-                                  Icons.check_circle_rounded,
-                                  color: Color(0xFF10B981),
-                                  size: 22,
-                                )
-                              : const Icon(
-                                  Icons.add_circle_outline_rounded,
-                                  size: 22,
-                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (playlists.isNotEmpty)
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                    itemCount: playlists.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final playlist = playlists[index];
+                      final isInPlaylist = playlist.tracks.any(
+                          (t) => (t.youtubeVideoId ?? t.id) == trackId);
+
+                      return Material(
+                        color: widget.isDark
+                            ? const Color(0xFF161A22)
+                            : const Color(0xFFF6F8FB),
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
                           onTap: () async {
                             if (isInPlaylist) {
                               await player.removeTrackFromPlaylist(
@@ -599,7 +816,7 @@ class _AddToPlaylistSheet extends StatelessWidget {
                               }
                             } else {
                               await player.addTrackToPlaylist(
-                                  playlist.id, track);
+                                  playlist.id, widget.track);
                               if (context.mounted) {
                                 Navigator.pop(context);
                                 ScaffoldMessenger.of(context).showSnackBar(
@@ -613,13 +830,201 @@ class _AddToPlaylistSheet extends StatelessWidget {
                               }
                             }
                           },
-                        );
-                      },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Container(
+                                    width: 40,
+                                    height: 40,
+                                    color: widget.isDark
+                                        ? const Color(0xFF222736)
+                                        : const Color(0xFFE2E6EF),
+                                    child: playlist.coverUrl != null &&
+                                            playlist.coverUrl!.isNotEmpty
+                                        ? Image.network(
+                                            playlist.coverUrl!,
+                                            fit: BoxFit.cover,
+                                            errorBuilder: (_, __, ___) =>
+                                                const Icon(
+                                              Icons.queue_music_rounded,
+                                              color: AppColors.primary,
+                                              size: 20,
+                                            ),
+                                          )
+                                        : const Icon(
+                                            Icons.queue_music_rounded,
+                                            color: AppColors.primary,
+                                            size: 20,
+                                          ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        playlist.title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 13.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        playlist.formattedTrackCount,
+                                        style: TextStyle(
+                                          fontSize: 11.5,
+                                          color: widget.isDark
+                                              ? AppColors.darkTextSecondary
+                                              : AppColors.lightTextSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (isInPlaylist)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF10B981)
+                                          .withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.check_rounded,
+                                          color: Color(0xFF10B981),
+                                          size: 14,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'Added',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF10B981),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  )
+                                else
+                                  Icon(
+                                    Icons.add_circle_outline_rounded,
+                                    color: widget.isDark
+                                        ? AppColors.darkTextSecondary
+                                        : AppColors.lightTextSecondary,
+                                    size: 20,
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ActionTile extends StatelessWidget {
+  final bool isDark;
+  final IconData icon;
+  final Color iconColor;
+  final Color iconBgColor;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _ActionTile({
+    required this.isDark,
+    required this.icon,
+    required this.iconColor,
+    required this.iconBgColor,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: isDark ? const Color(0xFF161A22) : const Color(0xFFF6F8FB),
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-            ),
-          ],
-        );
-      },
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: isDark
+                            ? AppColors.darkTextSecondary
+                            : AppColors.lightTextSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.add_rounded,
+                size: 20,
+                color: isDark
+                    ? AppColors.darkTextTertiary
+                    : AppColors.lightTextTertiary,
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
