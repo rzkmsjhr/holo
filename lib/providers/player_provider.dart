@@ -69,6 +69,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _isHifiEnabled = true; // default on
   bool _isFetchingEndless = false;
   bool _hasTrackCompleted = false;
+  bool _isTransitioningTrack = false;
+  String? _activePlaybackTrackKey;
   DateTime? _lastTrackChangeTime;
 
   // Real-time lyrics state
@@ -414,8 +416,19 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _handleTrackCompletion() {
-    if (_hasTrackCompleted) return;
+    if (_hasTrackCompleted || _isTransitioningTrack) {
+      logDebug('_handleTrackCompletion: duplicate or in-transition completion event ignored.');
+      return;
+    }
+    final currentKey = _currentTrack != null
+        ? '${_currentTrack!.id}_${_currentTrack!.title}'
+        : null;
+    if (currentKey == null || _activePlaybackTrackKey != currentKey) {
+      logDebug('_handleTrackCompletion: ignoring stale completion event for non-active track key');
+      return;
+    }
     _hasTrackCompleted = true;
+    _isTransitioningTrack = true;
     logDebug('_handleTrackCompletion: current track finished. Advancing to next track...');
     next();
   }
@@ -546,16 +559,24 @@ class PlayerProvider extends ChangeNotifier {
   void _updateAllMatchingTrackArtworks(
       String artist, String title, String art) {
     if (art.isEmpty) return;
+    final matchA = ArtworkService.cleanForMatching(artist);
+    final matchT = ArtworkService.cleanForMatching(title);
     final cleanA = artist.toLowerCase().trim();
     final cleanT = title.toLowerCase().trim();
 
-    bool changed = false;
+    bool isMatch(String a, String t) {
+      final aLower = a.toLowerCase().trim();
+      final tLower = t.toLowerCase().trim();
+      if (aLower == cleanA && tLower == cleanT) return true;
+      return ArtworkService.cleanForMatching(a) == matchA &&
+          ArtworkService.cleanForMatching(t) == matchT;
+    }
 
+    bool changed = false;
     final isStudioArt = art.contains('mzstatic.com') || art.contains('dzcdn.net');
 
     if (_currentTrack != null &&
-        _currentTrack!.artist.toLowerCase().trim() == cleanA &&
-        _currentTrack!.title.toLowerCase().trim() == cleanT &&
+        isMatch(_currentTrack!.artist, _currentTrack!.title) &&
         (_currentTrack!.thumbnailUrl.isEmpty ||
             _currentTrack!.thumbnailUrl.contains('unsplash.com') ||
             _currentTrack!.thumbnailUrl.contains('maxresdefault.jpg') ||
@@ -568,8 +589,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_recentlyPlayed != null) {
       for (var i = 0; i < _recentlyPlayed!.length; i++) {
         final t = _recentlyPlayed![i];
-        if (t.artist.toLowerCase().trim() == cleanA &&
-            t.title.toLowerCase().trim() == cleanT &&
+        if (isMatch(t.artist, t.title) &&
             (t.thumbnailUrl.isEmpty ||
                 t.thumbnailUrl.contains('unsplash.com') ||
                 t.thumbnailUrl.contains('maxresdefault.jpg') ||
@@ -582,8 +602,7 @@ class PlayerProvider extends ChangeNotifier {
 
     for (var i = 0; i < _queue.length; i++) {
       final t = _queue[i];
-      if (t.artist.toLowerCase().trim() == cleanA &&
-          t.title.toLowerCase().trim() == cleanT &&
+      if (isMatch(t.artist, t.title) &&
           (t.thumbnailUrl.isEmpty ||
               t.thumbnailUrl.contains('unsplash.com') ||
               t.thumbnailUrl.contains('maxresdefault.jpg') ||
@@ -595,8 +614,7 @@ class PlayerProvider extends ChangeNotifier {
 
     for (var i = 0; i < _likedTracks.length; i++) {
       final t = _likedTracks[i];
-      if (t.artist.toLowerCase().trim() == cleanA &&
-          t.title.toLowerCase().trim() == cleanT &&
+      if (isMatch(t.artist, t.title) &&
           (t.thumbnailUrl.isEmpty ||
               t.thumbnailUrl.contains('unsplash.com') ||
               t.thumbnailUrl.contains('maxresdefault.jpg') ||
@@ -609,8 +627,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_globalTrending != null) {
       for (var i = 0; i < _globalTrending!.length; i++) {
         final t = _globalTrending![i];
-        if (t.artist.toLowerCase().trim() == cleanA &&
-            t.title.toLowerCase().trim() == cleanT &&
+        if (isMatch(t.artist, t.title) &&
             (t.thumbnailUrl == null ||
                 t.thumbnailUrl!.isEmpty ||
                 t.thumbnailUrl!.contains('unsplash.com') ||
@@ -625,8 +642,7 @@ class PlayerProvider extends ChangeNotifier {
     if (_indonesiaTrending != null) {
       for (var i = 0; i < _indonesiaTrending!.length; i++) {
         final t = _indonesiaTrending![i];
-        if (t.artist.toLowerCase().trim() == cleanA &&
-            t.title.toLowerCase().trim() == cleanT &&
+        if (isMatch(t.artist, t.title) &&
             (t.thumbnailUrl == null ||
                 t.thumbnailUrl!.isEmpty ||
                 t.thumbnailUrl!.contains('unsplash.com') ||
@@ -916,7 +932,14 @@ class PlayerProvider extends ChangeNotifier {
     _isAttemptingCandidateFallback = false;
     _failedCandidateIdsForTrack.clear();
     _failedTrackKey = null;
-    _hasTrackCompleted = false;
+    _hasTrackCompleted = true;
+    _isTransitioningTrack = true;
+
+    if (!_isUsingYtIframe && _audioPlayer.processingState == ProcessingState.completed) {
+      try {
+        await _audioPlayer.stop();
+      } catch (_) {}
+    }
 
     final sanitizedTrack = _sanitizeTrack(track);
     logDebug('playTrack: "${sanitizedTrack.title}" by "${sanitizedTrack.artist}" (id: ${sanitizedTrack.id}, ytVideoId: ${sanitizedTrack.youtubeVideoId})');
@@ -1155,6 +1178,10 @@ class PlayerProvider extends ChangeNotifier {
       _isUsingYtIframe = true;
       _isBuffering = true;
       _playbackError = null;
+      _activePlaybackTrackKey =
+          _currentTrack != null ? '${_currentTrack!.id}_${_currentTrack!.title}' : null;
+      _hasTrackCompleted = false;
+      _isTransitioningTrack = false;
       _syncNotificationPlaybackState();
       notifyListeners();
       try {
@@ -1175,6 +1202,13 @@ class PlayerProvider extends ChangeNotifier {
       logDebug('_playStream: setUrl succeeded. Setting volume and playing...');
       await _audioPlayer.setVolume(_volume);
       await _audioPlayer.play();
+      _isPlaying = true;
+      _isBuffering = false;
+      _playbackError = null;
+      _activePlaybackTrackKey =
+          _currentTrack != null ? '${_currentTrack!.id}_${_currentTrack!.title}' : null;
+      _hasTrackCompleted = false;
+      _isTransitioningTrack = false;
       _syncNotificationPlaybackState();
       logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
@@ -1327,6 +1361,7 @@ class PlayerProvider extends ChangeNotifier {
     // 3. All candidates exhausted: present a human-friendly error message
     logDebug('_handlePlaybackFailure: All candidates exhausted or failed. Setting playback error.');
     _isBuffering = false;
+    _isTransitioningTrack = false;
     _playbackError = _formatPlaybackError(error, track);
     notifyListeners();
   }
@@ -1484,10 +1519,13 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> next() async {
-    if (_queue.isEmpty) return;
+    if (_queue.isEmpty) {
+      _isTransitioningTrack = false;
+      return;
+    }
     final now = DateTime.now();
     if (_lastTrackChangeTime != null &&
-        now.difference(_lastTrackChangeTime!) < const Duration(milliseconds: 600)) {
+        now.difference(_lastTrackChangeTime!) < const Duration(milliseconds: 1000)) {
       logDebug('next() debounced: ignoring rapid duplicate invocation');
       return;
     }
@@ -1495,6 +1533,7 @@ class PlayerProvider extends ChangeNotifier {
 
     if (_repeatMode == 2) {
       _hasTrackCompleted = false;
+      _isTransitioningTrack = false;
       seekTo(Duration.zero);
       if (!_isPlaying) {
         if (_isUsingYtIframe) {
@@ -1507,6 +1546,7 @@ class PlayerProvider extends ChangeNotifier {
     }
     if (_currentIndex + 1 < _queue.length) {
       _currentIndex++;
+      _lastTrackChangeTime = DateTime.now();
       await playTrack(_queue[_currentIndex]);
       return;
     }
@@ -1525,13 +1565,16 @@ class PlayerProvider extends ChangeNotifier {
 
       if (_currentIndex + 1 < _queue.length) {
         _currentIndex++;
+        _lastTrackChangeTime = DateTime.now();
         await playTrack(_queue[_currentIndex]);
         return;
       }
     }
 
+    _isTransitioningTrack = false;
     if (_repeatMode == 1 && _queue.isNotEmpty) {
       _currentIndex = 0;
+      _lastTrackChangeTime = DateTime.now();
       await playTrack(_queue[_currentIndex]);
     } else {
       _ytIframeBridge.stop();

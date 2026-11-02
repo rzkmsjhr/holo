@@ -38,15 +38,35 @@ class ArtworkService {
     _isInitialized = true;
   }
 
+  static String cleanForMatching(String text) {
+    return text
+        .toLowerCase()
+        .replaceAll(RegExp(r'\(.*?\)', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\[.*?\]', caseSensitive: false), '')
+        .replaceAll(
+            RegExp(r'\b(feat|ft|featuring|with|w/)\b.*', caseSensitive: false),
+            '')
+        .replaceAll(RegExp(r'\s*-\s*topic$', caseSensitive: false), '')
+        .replaceAll(RegExp(r'remaster(ed)?(\s*\d{4})?', caseSensitive: false), '')
+        .replaceAll(RegExp(r'[^\p{L}\p{N}\s]', unicode: true), '')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+  }
+
   String _cacheKey(String artist, String title) {
-    final cleanA = artist.toLowerCase().trim();
-    final cleanT = title.toLowerCase().trim();
+    final cleanA = cleanForMatching(artist);
+    final cleanT = cleanForMatching(title);
     return '$cleanA - $cleanT';
   }
 
   /// Returns cached artwork URL synchronously if available
   String? getCached(String artist, String title) {
-    return _cache[_cacheKey(artist, title)];
+    final key = _cacheKey(artist, title);
+    if (_cache.containsKey(key) && _cache[key]!.isNotEmpty) {
+      return _cache[key];
+    }
+    final rawKey = '${artist.toLowerCase().trim()} - ${title.toLowerCase().trim()}';
+    return _cache[rawKey];
   }
 
   /// Resolves high-resolution album cover artwork via iTunes or Deezer
@@ -56,8 +76,12 @@ class ArtworkService {
     bool isIndonesian = false,
   }) async {
     final key = _cacheKey(artist, title);
+    final rawKey = '${artist.toLowerCase().trim()} - ${title.toLowerCase().trim()}';
     if (_cache.containsKey(key) && _cache[key]!.isNotEmpty) {
       return _cache[key];
+    }
+    if (_cache.containsKey(rawKey) && _cache[rawKey]!.isNotEmpty) {
+      return _cache[rawKey];
     }
 
     // 1. Clean query strings
@@ -82,6 +106,7 @@ class ArtworkService {
     final itunesArt = await _queryItunes(cleanArtist, cleanTitle, isIndonesian);
     if (itunesArt != null && itunesArt.isNotEmpty) {
       _cache[key] = itunesArt;
+      _cache[rawKey] = itunesArt;
       _persistCache();
       return itunesArt;
     }
@@ -90,6 +115,7 @@ class ArtworkService {
     final deezerArt = await _queryDeezer(cleanArtist, cleanTitle);
     if (deezerArt != null && deezerArt.isNotEmpty) {
       _cache[key] = deezerArt;
+      _cache[rawKey] = deezerArt;
       _persistCache();
       return deezerArt;
     }
