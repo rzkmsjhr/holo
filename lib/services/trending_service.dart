@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
@@ -31,7 +32,7 @@ class TrendingService {
       final res = await http.get(
         Uri.parse(url),
         headers: {
-          'User-Agent': _userAgent,
+          if (!kIsWeb) 'User-Agent': _userAgent,
           'Accept-Language': 'en-US,en;q=0.9,id;q=0.8,ja;q=0.7,ko;q=0.7,ar;q=0.7,th;q=0.7',
           'Accept-Charset': 'utf-8',
         },
@@ -101,7 +102,7 @@ class TrendingService {
       }
     } catch (_) {}
 
-    // Fallback placeholder track
+    // Fallback track (uses item.youtubeVideoId from snapshot if available)
     final fallback = item.toTrack();
     _resolvedCache[cacheKey] = fallback;
     return fallback;
@@ -142,14 +143,16 @@ class TrendingService {
 
         final plays = tds[6].replaceAll(tagStrip, '').trim();
 
-        // Match artwork from verified snapshot
+        // Match artwork and youtubeVideoId from verified snapshot
         String? thumb;
+        String? ytVid;
         for (final s in snapshot) {
           final sA = (s['artist'] as String? ?? '').toLowerCase().trim();
           final sT = (s['title'] as String? ?? '').toLowerCase().trim();
           if ((sA == artist.toLowerCase().trim() && sT == title.toLowerCase().trim()) ||
               (rank == s['rank'] && (sA.contains(artist.toLowerCase()) || artist.toLowerCase().contains(sA)))) {
             thumb = s['thumbnailUrl'] as String?;
+            ytVid = s['youtubeVideoId'] as String?;
             break;
           }
         }
@@ -162,6 +165,7 @@ class TrendingService {
           plays: plays,
           query: '$artist - $title',
           thumbnailUrl: thumb,
+          youtubeVideoId: ytVid,
         ));
       }
     }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
@@ -12,6 +13,15 @@ class YouTubeMusicService {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   static const String _songsParam = 'EgWKAQIIAWoOEAQQAxAFEAkQEBAKEBU%3D';
+
+  static Map<String, String> get _requestHeaders => {
+        'Content-Type': 'application/json',
+        if (!kIsWeb) ...{
+          'User-Agent': _userAgent,
+          'Referer': 'https://music.youtube.com/',
+          'Origin': 'https://music.youtube.com',
+        },
+      };
 
   /// Searches YouTube Music for songs matching the query
   Future<List<Track>> searchSongs(String query) async {
@@ -35,12 +45,7 @@ class YouTubeMusicService {
       final res = await http
           .post(
             Uri.parse(_innertubeSearchUrl),
-            headers: {
-              'User-Agent': _userAgent,
-              'Content-Type': 'application/json',
-              'Referer': 'https://music.youtube.com/',
-              'Origin': 'https://music.youtube.com',
-            },
+            headers: _requestHeaders,
             body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 7));
@@ -77,12 +82,7 @@ class YouTubeMusicService {
       final res = await http
           .post(
             Uri.parse(_innertubeNextUrl),
-            headers: {
-              'User-Agent': _userAgent,
-              'Content-Type': 'application/json',
-              'Referer': 'https://music.youtube.com/',
-              'Origin': 'https://music.youtube.com',
-            },
+            headers: _requestHeaders,
             body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 7));

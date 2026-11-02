@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:audio_session/audio_session.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/daily_mix.dart';
@@ -19,9 +19,11 @@ import '../services/trending_service.dart';
 import '../services/vibe_recommendation_service.dart';
 import '../services/youtube_music_service.dart';
 import '../services/youtube_stream_resolver.dart';
+import '../services/yt_iframe_bridge.dart';
 
 class PlayerProvider extends ChangeNotifier {
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final YouTubeIframeBridge _ytIframeBridge = YouTubeIframeBridge();
   final HifiMatcher _hifiMatcher = HifiMatcher();
   final YouTubeStreamResolver _ytResolver = YouTubeStreamResolver();
   final YouTubeMusicService _ytmService = YouTubeMusicService();
@@ -37,6 +39,7 @@ class PlayerProvider extends ChangeNotifier {
 
   Track? _currentTrack;
   bool _isPlaying = false;
+  bool _isUsingYtIframe = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   List<Track> _queue = [];
@@ -75,6 +78,10 @@ class PlayerProvider extends ChangeNotifier {
   StreamSubscription? _stateSub;
   StreamSubscription? _eventSub;
   StreamSubscription? _connectivitySub;
+  StreamSubscription? _ytPosSub;
+  StreamSubscription? _ytDurSub;
+  StreamSubscription? _ytStateSub;
+  StreamSubscription? _ytErrSub;
 
   // Candidate fallback recovery state
   bool _isAttemptingCandidateFallback = false;
@@ -175,6 +182,7 @@ class PlayerProvider extends ChangeNotifier {
 
   PlayerProvider() {
     _ytResolver.onLog = logDebug;
+    _ytIframeBridge.onLog = logDebug;
     logDebug('Pulse Audio Player initialized. Diagnostic logging active.');
     _initConnectivity();
     _initAudioListeners();
@@ -254,11 +262,13 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {}
 
     _posSub = _audioPlayer.positionStream.listen((pos) {
+      if (_isUsingYtIframe) return;
       _position = pos;
       notifyListeners();
     });
 
     _durSub = _audioPlayer.durationStream.listen((dur) {
+      if (_isUsingYtIframe) return;
       if (dur != null) {
         _duration = dur;
         notifyListeners();
@@ -266,6 +276,7 @@ class PlayerProvider extends ChangeNotifier {
     });
 
     _stateSub = _audioPlayer.playerStateStream.listen((state) {
+      if (_isUsingYtIframe) return;
       _isPlaying = state.playing;
       _isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
@@ -278,10 +289,58 @@ class PlayerProvider extends ChangeNotifier {
     _eventSub = _audioPlayer.playbackEventStream.listen(
       (event) {},
       onError: (Object e, StackTrace st) {
+        if (_isUsingYtIframe) return;
         logDebug('playbackEventStream onError: $e');
         _handlePlaybackFailure(e);
       },
     );
+
+    // Cloudflare Worker YouTube IFrame Bridge listeners (Web)
+    _ytPosSub = _ytIframeBridge.positionStream.listen((pos) {
+      if (!_isUsingYtIframe) return;
+      _position = pos;
+      notifyListeners();
+    });
+
+    _ytDurSub = _ytIframeBridge.durationStream.listen((dur) {
+      if (!_isUsingYtIframe) return;
+      if (dur.inSeconds > 0) {
+        _duration = dur;
+        notifyListeners();
+      }
+    });
+
+    _ytStateSub = _ytIframeBridge.stateStream.listen((stateCode) {
+      if (!_isUsingYtIframe) return;
+      if (stateCode == 1) {
+        // Playing
+        _isPlaying = true;
+        _isBuffering = false;
+        _playbackError = null;
+        notifyListeners();
+      } else if (stateCode == 2) {
+        // Paused
+        _isPlaying = false;
+        _isBuffering = false;
+        notifyListeners();
+      } else if (stateCode == 3) {
+        // Buffering
+        _isBuffering = true;
+        notifyListeners();
+      } else if (stateCode == 0) {
+        // Ended
+        _isPlaying = false;
+        _isBuffering = false;
+        next();
+        notifyListeners();
+      }
+    });
+
+    _ytErrSub = _ytIframeBridge.errorStream.listen((errCode) {
+      if (!_isUsingYtIframe) return;
+      logDebug('YouTubeIframeBridge error code: $errCode');
+      _handlePlaybackFailure('YouTube IFrame error $errCode');
+    });
   }
 
   Track _sanitizeTrack(Track t) {
@@ -674,6 +733,7 @@ class PlayerProvider extends ChangeNotifier {
     await _playlistService.removeTrackFromPlaylist(playlistId, trackId);
     _playlists = await _playlistService.loadPlaylists(sampleCatalog: _queue);
     notifyListeners();
+    return;
   }
 
   Future<void> deletePlaylist(String playlistId) async {
@@ -841,7 +901,7 @@ class PlayerProvider extends ChangeNotifier {
       notifyListeners();
       await _playStream(hifiTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
     } else {
-      // Fallback: YouTube direct audio extraction
+      // Fallback: YouTube stream resolution
       final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
       final ytRes = await _ytResolver.resolveStreamForTrack(
         title: sanitizedTrack.title,
@@ -875,17 +935,50 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
+    if (url.startsWith('yt-iframe://')) {
+      final videoId = url.substring('yt-iframe://'.length).trim();
+      logDebug('_playStream: playing YouTube videoId "$videoId" via Cloudflare Worker IFrame Bridge');
+      _isUsingYtIframe = true;
+      _isBuffering = true;
+      _playbackError = null;
+      notifyListeners();
+      try {
+        await _audioPlayer.stop();
+      } catch (_) {}
+      _ytIframeBridge.loadVideo(videoId, startSeconds: 0, volume: _volume);
+      return;
+    }
+
     try {
+      _isUsingYtIframe = false;
+      _ytIframeBridge.stop();
+
       final cleanUrl = url.contains('?') ? '${url.substring(0, url.indexOf('?'))}?...' : url;
       logDebug('_playStream: attempting setUrl with $cleanUrl');
       await _audioPlayer.stop();
       await _audioPlayer.setUrl(url);
       logDebug('_playStream: setUrl succeeded. Setting volume and playing...');
-      await _audioPlayer.setVolume(1.0);
+      await _audioPlayer.setVolume(_volume);
       await _audioPlayer.play();
       logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
       logDebug('_playStream: caught exception: $e');
+      // On Web, if direct audio stream fails (e.g. CORS or media element restriction)
+      // and we have a valid YouTube videoId, immediately switch to the Cloudflare Worker IFrame Bridge!
+      final track = fallbackYtTrack ?? _currentTrack;
+      final vid = (track?.youtubeVideoId ?? track?.id ?? '').trim();
+      final isRealVid = vid.isNotEmpty &&
+          !vid.startsWith('trending_') &&
+          !vid.startsWith('track_');
+      if (kIsWeb && isRealVid && !(track?.isLossless ?? false)) {
+        logDebug('_playStream: falling back to Cloudflare Worker IFrame Bridge for "$vid" on Web');
+        _isUsingYtIframe = true;
+        _isBuffering = true;
+        _playbackError = null;
+        notifyListeners();
+        _ytIframeBridge.loadVideo(vid, startSeconds: 0, volume: _volume);
+        return;
+      }
       await _handlePlaybackFailure(e);
     }
   }
@@ -956,17 +1049,10 @@ class PlayerProvider extends ChangeNotifier {
           _currentTrack = downgraded;
           _updateTrackInQueue(downgraded);
           _updateRecentlyPlayed(downgraded);
-          notifyListeners();
-
-          await _audioPlayer.stop();
-          await _audioPlayer.setUrl(ytRes.url!);
-          await _audioPlayer.setVolume(1.0);
-          await _audioPlayer.play();
-
           _isAttemptingCandidateFallback = false;
-          _isBuffering = false;
-          _playbackError = null;
           notifyListeners();
+
+          await _playStream(ytRes.url!, fallbackYtTrack: downgraded);
           return;
         } else {
           logDebug('_handlePlaybackFailure: FLAC downgrade to YouTube failed: ${ytRes.errorMessage}');
@@ -1007,17 +1093,10 @@ class PlayerProvider extends ChangeNotifier {
           _currentTrack = altTrack;
           _updateTrackInQueue(altTrack);
           _updateRecentlyPlayed(altTrack);
-          notifyListeners();
-
-          await _audioPlayer.stop();
-          await _audioPlayer.setUrl(altRes.url!);
-          await _audioPlayer.setVolume(1.0);
-          await _audioPlayer.play();
-
           _isAttemptingCandidateFallback = false;
-          _isBuffering = false;
-          _playbackError = null;
           notifyListeners();
+
+          await _playStream(altRes.url!, fallbackYtTrack: altTrack);
           return;
         } else {
           logDebug('_handlePlaybackFailure: Candidate search returned failure: ${altRes.errorMessage}');
@@ -1149,6 +1228,18 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> togglePlayPause() async {
+    if (_isUsingYtIframe) {
+      if (_isPlaying) {
+        _ytIframeBridge.pause();
+        _isPlaying = false;
+      } else {
+        _ytIframeBridge.play();
+        _isPlaying = true;
+      }
+      notifyListeners();
+      return;
+    }
+
     if (_isPlaying) {
       await _audioPlayer.pause();
     } else {
@@ -1163,6 +1254,10 @@ class PlayerProvider extends ChangeNotifier {
   Future<void> seekTo(Duration position) async {
     _position = position;
     notifyListeners();
+    if (_isUsingYtIframe) {
+      _ytIframeBridge.seekTo(position);
+      return;
+    }
     try {
       await _audioPlayer.seek(position);
     } catch (_) {}
@@ -1203,6 +1298,8 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
       await playTrack(_queue[_currentIndex]);
     } else {
+      _ytIframeBridge.stop();
+      _isUsingYtIframe = false;
       await _audioPlayer.stop();
       _isPlaying = false;
       notifyListeners();
@@ -1232,6 +1329,7 @@ class PlayerProvider extends ChangeNotifier {
   void setVolume(double val) {
     _volume = val.clamp(0.0, 1.0);
     _audioPlayer.setVolume(_volume);
+    _ytIframeBridge.setVolume(_volume);
     notifyListeners();
   }
 
@@ -1326,7 +1424,12 @@ class PlayerProvider extends ChangeNotifier {
     _stateSub?.cancel();
     _eventSub?.cancel();
     _connectivitySub?.cancel();
+    _ytPosSub?.cancel();
+    _ytDurSub?.cancel();
+    _ytStateSub?.cancel();
+    _ytErrSub?.cancel();
     ConnectivityService().stopMonitoring();
+    _ytIframeBridge.dispose();
     _audioPlayer.dispose();
     _ytResolver.dispose();
     super.dispose();

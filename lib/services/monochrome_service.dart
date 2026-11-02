@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
@@ -26,7 +27,7 @@ class MonochromeService {
     try {
       final res = await http
           .get(url, headers: {
-            'User-Agent': userAgent,
+            if (!kIsWeb) 'User-Agent': userAgent,
             'Accept': 'application/json',
           })
           .timeout(const Duration(seconds: 4));
@@ -90,7 +91,7 @@ class MonochromeService {
           .get(
             Uri.parse(url),
             headers: {
-              'User-Agent': userAgent,
+              if (!kIsWeb) 'User-Agent': userAgent,
               'Range': 'bytes=0-3',
             },
           )
