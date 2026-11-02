@@ -620,8 +620,18 @@ class _SearchScreenState extends State<SearchScreen> {
               ? Image.network(
                   track.thumbnailUrl,
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) =>
-                      const Icon(Icons.music_note, color: Colors.white),
+                  errorBuilder: (_, __, ___) {
+                    final vid = track.youtubeVideoId ?? track.id;
+                    if (vid.length == 11 && !track.thumbnailUrl.contains(vid)) {
+                      return Image.network(
+                        'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.music_note, color: Colors.white),
+                      );
+                    }
+                    return const Icon(Icons.music_note, color: Colors.white);
+                  },
                 )
               : const Icon(Icons.music_note, color: Colors.white),
         ),

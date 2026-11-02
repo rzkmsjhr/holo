@@ -37,7 +37,7 @@ class Track {
     return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
-  /// Upgrades any thumbnail URL to its highest definition master resolution
+  /// Safely upgrades any thumbnail URL to a high-definition resolution without causing HTTP 404s
   static String toHighResUrl(String? url) {
     if (url == null || url.isEmpty || url.contains('unsplash.com')) return '';
     var highRes = url;
@@ -45,9 +45,10 @@ class Track {
       highRes = highRes.replaceAll(RegExp(r'=w\d+-h\d+'), '=w1080-h1080');
       highRes = highRes.replaceAll(RegExp(r'=s\d+'), '=s1080');
     } else if (highRes.contains('ytimg.com')) {
+      // Only upgrade tiny default/mqdefault to guaranteed hqdefault (avoid maxresdefault which 404s on topic tracks)
       highRes = highRes.replaceAll(
-          RegExp(r'/(?:default|mqdefault|hqdefault|sddefault)\.jpg'),
-          '/maxresdefault.jpg');
+          RegExp(r'/(?:default|mqdefault)\.jpg'),
+          '/hqdefault.jpg');
     }
     return highRes;
   }
