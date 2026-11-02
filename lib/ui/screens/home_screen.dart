@@ -1064,9 +1064,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (item.rank == 1) {
       rankColor = AppColors.primary;
     } else if (item.rank == 2) {
-      rankColor = Colors.white;
+      rankColor =
+          isDark ? AppColors.darkTextPrimary : AppColors.lightTextPrimary;
     } else if (item.rank == 3) {
-      rankColor = AppColors.accent;
+      rankColor = isDark ? AppColors.accent : const Color(0xFF4D7C0F);
     } else {
       rankColor =
           isDark ? AppColors.darkTextTertiary : AppColors.lightTextTertiary;
