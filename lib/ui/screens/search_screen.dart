@@ -616,24 +616,40 @@ class _SearchScreenState extends State<SearchScreen> {
           width: 46,
           height: 46,
           color: AppColors.secondary,
-          child: track.thumbnailUrl.isNotEmpty
-              ? Image.network(
-                  track.thumbnailUrl,
+          child: Builder(builder: (context) {
+            final cachedArt = player.getArtwork(track.artist, track.title);
+            final art = (cachedArt != null && cachedArt.isNotEmpty)
+                ? cachedArt
+                : (track.thumbnailUrl.isNotEmpty ? track.thumbnailUrl : null);
+
+            final vid = track.youtubeVideoId ?? track.id;
+
+            Widget placeholder() => const Icon(
+                  Icons.music_note,
+                  color: Colors.white,
+                );
+
+            Widget buildYtFallback() {
+              if (vid.length == 11) {
+                return Image.network(
+                  'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                   fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) {
-                    final vid = track.youtubeVideoId ?? track.id;
-                    if (vid.length == 11 && !track.thumbnailUrl.contains(vid)) {
-                      return Image.network(
-                        'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                            const Icon(Icons.music_note, color: Colors.white),
-                      );
-                    }
-                    return const Icon(Icons.music_note, color: Colors.white);
-                  },
-                )
-              : const Icon(Icons.music_note, color: Colors.white),
+                  errorBuilder: (_, __, ___) => placeholder(),
+                );
+              }
+              return placeholder();
+            }
+
+            if (art != null && art.isNotEmpty) {
+              return Image.network(
+                art,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => buildYtFallback(),
+              );
+            }
+
+            return buildYtFallback();
+          }),
         ),
       ),
       title: Row(

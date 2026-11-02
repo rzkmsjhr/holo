@@ -324,45 +324,62 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 52,
                   height: double.infinity,
                   child: Builder(builder: (context) {
-                    final rawHigh = track.highResThumbnailUrl;
-                    final rawThumb = track.thumbnailUrl;
-                    final validHigh = rawHigh.isNotEmpty && !rawHigh.contains('unsplash.com');
-                    final validThumb = rawThumb.isNotEmpty && !rawThumb.contains('unsplash.com');
-                    final art = validHigh
-                        ? rawHigh
-                        : (validThumb
-                            ? rawThumb
-                            : player.getArtwork(track.artist, track.title));
+                    final cachedArt = player.getArtwork(track.artist, track.title);
+                    final art = (cachedArt != null && cachedArt.isNotEmpty)
+                        ? cachedArt
+                        : (track.highResThumbnailUrl.isNotEmpty
+                            ? track.highResThumbnailUrl
+                            : (track.thumbnailUrl.isNotEmpty
+                                ? track.thumbnailUrl
+                                : null));
 
-                    if (art == null || art.isEmpty) {
+                    if (cachedArt == null || cachedArt.isEmpty) {
                       player.resolveArtworkFor(track.artist, track.title);
                     }
 
-                    return art != null && art.isNotEmpty
-                        ? Image.network(
-                            art,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Image.network(
-                              (track.thumbnailUrl.isNotEmpty &&
-                                      track.thumbnailUrl != art)
-                                  ? track.thumbnailUrl
-                                  : (art.contains('maxresdefault.jpg')
-                                      ? art.replaceAll('maxresdefault.jpg',
-                                          'hqdefault.jpg')
-                                      : ''),
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => Container(
-                                color: AppColors.secondary,
-                                child: const Icon(Icons.music_note,
-                                    color: Colors.white, size: 20),
-                              ),
-                            ),
-                          )
-                        : Container(
-                            color: AppColors.secondary,
-                            child: const Icon(Icons.music_note,
-                                color: Colors.white, size: 20),
-                          );
+                    final vid = track.youtubeVideoId ?? track.id;
+
+                    Widget placeholderIcon() => Container(
+                          color: AppColors.secondary,
+                          child: const Icon(Icons.music_note,
+                              color: Colors.white, size: 20),
+                        );
+
+                    Widget buildYtFallback() {
+                      if (vid.length == 11) {
+                        return Image.network(
+                          'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.high,
+                          errorBuilder: (_, __, ___) => placeholderIcon(),
+                        );
+                      }
+                      return placeholderIcon();
+                    }
+
+                    Widget buildThumbFallback() {
+                      if (track.thumbnailUrl.isNotEmpty &&
+                          track.thumbnailUrl != art) {
+                        return Image.network(
+                          track.thumbnailUrl,
+                          fit: BoxFit.cover,
+                          filterQuality: FilterQuality.high,
+                          errorBuilder: (_, __, ___) => buildYtFallback(),
+                        );
+                      }
+                      return buildYtFallback();
+                    }
+
+                    if (art != null && art.isNotEmpty) {
+                      return Image.network(
+                        art,
+                        fit: BoxFit.cover,
+                        filterQuality: FilterQuality.high,
+                        errorBuilder: (_, __, ___) => buildThumbFallback(),
+                      );
+                    }
+
+                    return buildThumbFallback();
                   }),
                 ),
               ),
@@ -701,17 +718,67 @@ class _HomeScreenState extends State<HomeScreen> {
                             width: 44,
                             height: 44,
                             color: AppColors.secondary,
-                            child: track.thumbnailUrl.isNotEmpty
-                                ? Image.network(
+                            child: Builder(builder: (context) {
+                              final cachedArt = player.getArtwork(
+                                  track.artist, track.title);
+                              final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                  ? cachedArt
+                                  : (track.highResThumbnailUrl.isNotEmpty
+                                      ? track.highResThumbnailUrl
+                                      : (track.thumbnailUrl.isNotEmpty
+                                          ? track.thumbnailUrl
+                                          : null));
+
+                              if (cachedArt == null || cachedArt.isEmpty) {
+                                player.resolveArtworkFor(
+                                    track.artist, track.title);
+                              }
+
+                              final vid = track.youtubeVideoId ?? track.id;
+
+                              Widget placeholder() => const Icon(
+                                    Icons.music_note,
+                                    color: Colors.white,
+                                  );
+
+                              Widget buildYtFallback() {
+                                if (vid.length == 11) {
+                                  return Image.network(
+                                    'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
+                                    errorBuilder: (_, __, ___) => placeholder(),
+                                  );
+                                }
+                                return placeholder();
+                              }
+
+                              Widget buildThumbFallback() {
+                                if (track.thumbnailUrl.isNotEmpty &&
+                                    track.thumbnailUrl != art) {
+                                  return Image.network(
                                     track.thumbnailUrl,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.music_note,
-                                      color: Colors.white,
-                                    ),
-                                  )
-                                : const Icon(Icons.music_note,
-                                    color: Colors.white),
+                                    filterQuality: FilterQuality.high,
+                                    errorBuilder: (_, __, ___) =>
+                                        buildYtFallback(),
+                                  );
+                                }
+                                return buildYtFallback();
+                              }
+
+                              if (art != null && art.isNotEmpty) {
+                                return Image.network(
+                                  art,
+                                  fit: BoxFit.cover,
+                                  filterQuality: FilterQuality.high,
+                                  errorBuilder: (_, __, ___) =>
+                                      buildThumbFallback(),
+                                );
+                              }
+
+                              return buildThumbFallback();
+                            }),
                           ),
                         ),
                         title: Text(
@@ -1127,60 +1194,59 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 46,
                   color: AppColors.secondary,
                   child: Builder(builder: (context) {
+                    final cachedArt = player.getArtwork(item.artist, item.title);
                     final rawThumb = item.thumbnailUrl;
                     final validThumb = rawThumb != null &&
                             rawThumb.isNotEmpty &&
                             !rawThumb.contains('unsplash.com');
-                    final art = validThumb
-                        ? rawThumb
-                        : player.getArtwork(item.artist, item.title);
+                    final art = (cachedArt != null && cachedArt.isNotEmpty)
+                        ? cachedArt
+                        : (validThumb ? rawThumb : null);
 
-                    if (art == null || art.isEmpty) {
+                    if (cachedArt == null || cachedArt.isEmpty) {
                       player.resolveArtworkFor(
                           item.artist, item.title, item.rank > 50);
                     }
 
-                    return art != null && art.isNotEmpty
-                        ? Image.network(
-                            art,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => (art.contains('maxresdefault.jpg'))
-                                ? Image.network(
-                                    art.replaceAll('maxresdefault.jpg', 'hqdefault.jpg'),
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.music_note,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  )
-                                : const Icon(
-                                    Icons.music_note,
-                                    color: Colors.white,
-                                    size: 22,
-                                  ),
-                          )
-                        : Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  AppColors.secondary,
-                                  isDark
-                                      ? const Color(0xFF1B1E28)
-                                      : const Color(0xFF33384A),
-                                ],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                            ),
-                            child: Center(
-                              child: Icon(
-                                Icons.music_note_rounded,
-                                color: Colors.white.withValues(alpha: 0.8),
-                                size: 22,
-                              ),
-                            ),
-                          );
+                    final vid = item.youtubeVideoId;
+
+                    Widget placeholder() => const Icon(
+                          Icons.music_note,
+                          color: Colors.white,
+                          size: 22,
+                        );
+
+                    Widget buildYtFallback() {
+                      if (vid != null && vid.length == 11) {
+                        return Image.network(
+                          'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => placeholder(),
+                        );
+                      }
+                      return placeholder();
+                    }
+
+                    Widget buildThumbFallback() {
+                      if (validThumb && rawThumb != art) {
+                        return Image.network(
+                          rawThumb,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => buildYtFallback(),
+                        );
+                      }
+                      return buildYtFallback();
+                    }
+
+                    if (art != null && art.isNotEmpty) {
+                      return Image.network(
+                        art,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => buildThumbFallback(),
+                      );
+                    }
+
+                    return buildThumbFallback();
                   }),
                 ),
               ),

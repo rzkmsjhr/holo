@@ -1323,32 +1323,63 @@ class _LibraryScreenState extends State<LibraryScreen> {
                               height: 42,
                               color: AppColors.secondary,
                               child: Builder(builder: (context) {
-                                final art = track.thumbnailUrl.isNotEmpty
-                                    ? track.thumbnailUrl
-                                    : player.getArtwork(
-                                        track.artist, track.title);
+                                final cachedArt = player.getArtwork(
+                                    track.artist, track.title);
+                                final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                    ? cachedArt
+                                    : (track.highResThumbnailUrl.isNotEmpty
+                                        ? track.highResThumbnailUrl
+                                        : (track.thumbnailUrl.isNotEmpty
+                                            ? track.thumbnailUrl
+                                            : null));
 
-                                if (art == null || art.isEmpty) {
+                                if (cachedArt == null || cachedArt.isEmpty) {
                                   player.resolveArtworkFor(
                                       track.artist, track.title);
                                 }
 
-                                return art != null && art.isNotEmpty
-                                    ? Image.network(
-                                        art,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (_, __, ___) =>
-                                            const Icon(
-                                          Icons.music_note_rounded,
-                                          color: Colors.white,
-                                          size: 20,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.music_note_rounded,
-                                        color: Colors.white,
-                                        size: 20,
-                                      );
+                                final vid = track.youtubeVideoId ?? track.id;
+
+                                Widget placeholder() => const Icon(
+                                      Icons.music_note_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    );
+
+                                Widget buildYtFallback() {
+                                  if (vid.length == 11) {
+                                    return Image.network(
+                                      'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => placeholder(),
+                                    );
+                                  }
+                                  return placeholder();
+                                }
+
+                                Widget buildThumbFallback() {
+                                  if (track.thumbnailUrl.isNotEmpty &&
+                                      track.thumbnailUrl != art) {
+                                    return Image.network(
+                                      track.thumbnailUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) =>
+                                          buildYtFallback(),
+                                    );
+                                  }
+                                  return buildYtFallback();
+                                }
+
+                                if (art != null && art.isNotEmpty) {
+                                  return Image.network(
+                                    art,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        buildThumbFallback(),
+                                  );
+                                }
+
+                                return buildThumbFallback();
                               }),
                             ),
                           ),

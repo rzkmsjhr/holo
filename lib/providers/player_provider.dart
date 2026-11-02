@@ -543,12 +543,29 @@ class PlayerProvider extends ChangeNotifier {
       }
     }
 
+    for (var i = 0; i < _likedTracks.length; i++) {
+      final t = _likedTracks[i];
+      if (t.artist.toLowerCase().trim() == cleanA &&
+          t.title.toLowerCase().trim() == cleanT &&
+          (t.thumbnailUrl.isEmpty ||
+              t.thumbnailUrl.contains('unsplash.com') ||
+              t.thumbnailUrl.contains('maxresdefault.jpg') ||
+              isStudioArt)) {
+        _likedTracks[i] = t.copyWith(thumbnailUrl: art);
+        changed = true;
+      }
+    }
+
     if (_globalTrending != null) {
       for (var i = 0; i < _globalTrending!.length; i++) {
         final t = _globalTrending![i];
         if (t.artist.toLowerCase().trim() == cleanA &&
             t.title.toLowerCase().trim() == cleanT &&
-            (t.thumbnailUrl == null || t.thumbnailUrl!.isEmpty)) {
+            (t.thumbnailUrl == null ||
+                t.thumbnailUrl!.isEmpty ||
+                t.thumbnailUrl!.contains('unsplash.com') ||
+                t.thumbnailUrl!.contains('maxresdefault.jpg') ||
+                isStudioArt)) {
           _globalTrending![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
@@ -560,7 +577,11 @@ class PlayerProvider extends ChangeNotifier {
         final t = _indonesiaTrending![i];
         if (t.artist.toLowerCase().trim() == cleanA &&
             t.title.toLowerCase().trim() == cleanT &&
-            (t.thumbnailUrl == null || t.thumbnailUrl!.isEmpty)) {
+            (t.thumbnailUrl == null ||
+                t.thumbnailUrl!.isEmpty ||
+                t.thumbnailUrl!.contains('unsplash.com') ||
+                t.thumbnailUrl!.contains('maxresdefault.jpg') ||
+                isStudioArt)) {
           _indonesiaTrending![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
