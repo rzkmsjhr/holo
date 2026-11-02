@@ -189,6 +189,11 @@ class QueueScreen extends StatelessWidget {
                                               ? currentTrack.thumbnailUrl
                                               : null));
 
+                                  if (cachedArt == null || cachedArt.isEmpty) {
+                                    player.resolveArtworkFor(
+                                        currentTrack.artist, currentTrack.title);
+                                  }
+
                                   final vid = currentTrack.youtubeVideoId ?? currentTrack.id;
 
                                   Widget placeholder() => const Icon(
@@ -199,7 +204,7 @@ class QueueScreen extends StatelessWidget {
                                   Widget buildYtFallback() {
                                     if (vid.length == 11) {
                                       return Image.network(
-                                        'https://i.ytimg.com/vi//hqdefault.jpg',
+                                        'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                         fit: BoxFit.cover,
                                         filterQuality: FilterQuality.high,
                                         errorBuilder: (_, __, ___) =>
@@ -418,6 +423,11 @@ class QueueScreen extends StatelessWidget {
                                                     ? track.thumbnailUrl
                                                     : null));
 
+                                        if (cachedArt == null || cachedArt.isEmpty) {
+                                          player.resolveArtworkFor(
+                                              track.artist, track.title);
+                                        }
+
                                         final vid = track.youtubeVideoId ?? track.id;
 
                                         Widget placeholder() => const Icon(
@@ -429,7 +439,7 @@ class QueueScreen extends StatelessWidget {
                                         Widget buildYtFallback() {
                                           if (vid.length == 11) {
                                             return Image.network(
-                                              'https://i.ytimg.com/vi//hqdefault.jpg',
+                                              'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                               fit: BoxFit.cover,
                                               filterQuality: FilterQuality.high,
                                               errorBuilder: (_, __, ___) =>
