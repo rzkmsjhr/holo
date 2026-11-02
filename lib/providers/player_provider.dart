@@ -66,6 +66,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _isEndlessPlay = true; // default on
   bool _isHifiEnabled = true; // default on
   bool _isFetchingEndless = false;
+  bool _hasTrackCompleted = false;
+  DateTime? _lastTrackChangeTime;
 
   // Real-time lyrics state
   bool? _hasSyncedLyrics = false;
@@ -281,7 +283,7 @@ class PlayerProvider extends ChangeNotifier {
       _isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
       if (state.processingState == ProcessingState.completed) {
-        next();
+        _handleTrackCompletion();
       }
       notifyListeners();
     });
@@ -331,7 +333,7 @@ class PlayerProvider extends ChangeNotifier {
         // Ended
         _isPlaying = false;
         _isBuffering = false;
-        next();
+        _handleTrackCompletion();
         notifyListeners();
       }
     });
@@ -341,6 +343,13 @@ class PlayerProvider extends ChangeNotifier {
       logDebug('YouTubeIframeBridge error code: $errCode');
       _handlePlaybackFailure('YouTube IFrame error $errCode');
     });
+  }
+
+  void _handleTrackCompletion() {
+    if (_hasTrackCompleted) return;
+    _hasTrackCompleted = true;
+    logDebug('_handleTrackCompletion: current track finished. Advancing to next track...');
+    next();
   }
 
   Track _sanitizeTrack(Track t) {
@@ -795,6 +804,7 @@ class PlayerProvider extends ChangeNotifier {
     _isAttemptingCandidateFallback = false;
     _failedCandidateIdsForTrack.clear();
     _failedTrackKey = null;
+    _hasTrackCompleted = false;
 
     final sanitizedTrack = _sanitizeTrack(track);
     logDebug('playTrack: "${sanitizedTrack.title}" by "${sanitizedTrack.artist}" (id: ${sanitizedTrack.id}, ytVideoId: ${sanitizedTrack.youtubeVideoId})');
@@ -802,8 +812,13 @@ class PlayerProvider extends ChangeNotifier {
     _addToRecentlyPlayed(sanitizedTrack);
     _tasteProfile.recordPlay(sanitizedTrack);
     _playbackError = null;
-    _currentIndex = _queue.indexOf(sanitizedTrack);
-    if (_currentIndex == -1) {
+    final trackId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
+    final foundIndex = _queue.indexWhere((t) =>
+        t.id == sanitizedTrack.id ||
+        (t.youtubeVideoId != null && t.youtubeVideoId == trackId));
+    if (foundIndex != -1) {
+      _currentIndex = foundIndex;
+    } else {
       // New song selected from outside queue: seed a fresh queue around this track
       _queue = [sanitizedTrack];
       _currentIndex = 0;
@@ -1265,8 +1280,24 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> next() async {
     if (_queue.isEmpty) return;
+    final now = DateTime.now();
+    if (_lastTrackChangeTime != null &&
+        now.difference(_lastTrackChangeTime!) < const Duration(milliseconds: 600)) {
+      logDebug('next() debounced: ignoring rapid duplicate invocation');
+      return;
+    }
+    _lastTrackChangeTime = now;
+
     if (_repeatMode == 2) {
+      _hasTrackCompleted = false;
       seekTo(Duration.zero);
+      if (!_isPlaying) {
+        if (_isUsingYtIframe) {
+          _ytIframeBridge.play();
+        } else {
+          _audioPlayer.play();
+        }
+      }
       return;
     }
     if (_currentIndex + 1 < _queue.length) {
