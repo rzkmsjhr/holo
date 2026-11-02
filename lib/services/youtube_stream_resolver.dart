@@ -32,7 +32,7 @@ class YouTubeStreamResolver {
   final YoutubeExplode _yt = YoutubeExplode();
 
   /// Clients to query for stream manifests to bypass web client cipher/SABR restrictions
-  static const List<YoutubeApiClient> _preferredClients = [
+  static final List<YoutubeApiClient> _preferredClients = [
     YoutubeApiClient.safari,
     YoutubeApiClient.androidVr,
     YoutubeApiClient.ios,

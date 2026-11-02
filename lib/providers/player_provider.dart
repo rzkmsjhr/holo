@@ -870,6 +870,7 @@ class PlayerProvider extends ChangeNotifier {
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
     } catch (e) {
+      Object lastError = e;
       // 1. If this was a Hi-Fi FLAC stream that failed, downgrade to YouTube Audio
       if (fallbackYtTrack != null && fallbackYtTrack.isLossless) {
         final vId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
@@ -904,7 +905,7 @@ class PlayerProvider extends ChangeNotifier {
             await _audioPlayer.play();
             return;
           } catch (e2) {
-            e = e2;
+            lastError = e2;
           }
         }
       } else if (fallbackYtTrack != null && !fallbackYtTrack.isLossless) {
@@ -942,12 +943,12 @@ class PlayerProvider extends ChangeNotifier {
             await _audioPlayer.play();
             return;
           } catch (e3) {
-            e = e3;
+            lastError = e3;
           }
         }
       }
 
-      _playbackError = _formatPlaybackError(e, fallbackYtTrack ?? _currentTrack);
+      _playbackError = _formatPlaybackError(lastError, fallbackYtTrack ?? _currentTrack);
       _isBuffering = false;
       notifyListeners();
     }

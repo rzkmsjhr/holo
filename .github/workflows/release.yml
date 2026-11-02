@@ -68,21 +68,43 @@ jobs:
       - name: Generate iOS scaffolding
         run: flutter create . --platforms=ios --org com.example
 
-      - name: Enable background audio in Info.plist
+      - name: Setup App Icon and Info.plist
         run: |
+          mkdir -p ios/Runner/Assets.xcassets/AppIcon.appiconset
+          cp assets/icons/app_logo_1024.png ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" ios/Runner/Info.plist || true
+
+      - name: Disable Code Signing in Xcode Project
+        run: |
+          sed -i '' 's/CODE_SIGN_STYLE = Automatic/CODE_SIGN_STYLE = Manual/g' ios/Runner.xcodeproj/project.pbxproj || true
+          sed -i '' 's/CODE_SIGNING_REQUIRED = YES/CODE_SIGNING_REQUIRED = NO/g' ios/Runner.xcodeproj/project.pbxproj || true
+          sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = "0000000000"; CODE_SIGNING_ALLOWED = NO; CODE_SIGNING_REQUIRED = NO; CODE_SIGN_IDENTITY = "";/g' ios/Runner.xcodeproj/project.pbxproj || true
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build iOS Release (No Codesign)
-        run: flutter build ios --release --no-codesign
+      - name: Prepare Flutter iOS build configs
+        run: flutter build ios --config-only --release --no-codesign
+
+      - name: Compile Unsigned iOS Runner.app
+        run: |
+          xcodebuild -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -sdk iphoneos \
+            -configuration Release \
+            -derivedDataPath build/ios_derived \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
       - name: Package into Sideloadable IPA
         run: |
+          APP_PATH=$(find build/ -name "Runner.app" -type d | head -n 1)
+          echo "Found Runner.app at: $APP_PATH"
           mkdir -p Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/
+          cp -R "$APP_PATH" Payload/
           zip -r pulse-audio-sideload.ipa Payload
           rm -rf Payload
 
