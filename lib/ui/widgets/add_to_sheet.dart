@@ -582,7 +582,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                       borderRadius: BorderRadius.circular(20),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 4),
+                            horizontal: 10, vertical: 6),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -590,14 +590,14 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                               _isCreating
                                   ? Icons.close_rounded
                                   : Icons.add_rounded,
-                              size: 16,
+                              size: 17,
                               color: AppColors.primary,
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 5),
                             Text(
                               _isCreating ? 'Cancel' : 'New Playlist',
                               style: const TextStyle(
-                                fontSize: 12,
+                                fontSize: 13,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.primary,
                               ),
@@ -665,8 +665,8 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                             backgroundColor: AppColors.primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 10),
-                            minimumSize: Size.zero,
+                                horizontal: 16, vertical: 11),
+                            minimumSize: const Size(0, 40),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -676,7 +676,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                           child: const Text(
                             'Create',
                             style: TextStyle(
-                              fontSize: 12.5,
+                              fontSize: 13,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -746,7 +746,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                                 : AppColors.lightTextSecondary,
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
                         OutlinedButton.icon(
                           onPressed: () {
                             setState(() {
@@ -758,21 +758,25 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                           },
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppColors.primary,
+                            backgroundColor: AppColors.primary.withValues(
+                              alpha: widget.isDark ? 0.12 : 0.08,
+                            ),
                             side: const BorderSide(
-                                color: AppColors.primary, width: 1.2),
+                                color: AppColors.primary, width: 1.5),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(12),
                             ),
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 7),
-                            minimumSize: Size.zero,
+                                horizontal: 20, vertical: 11),
+                            minimumSize: const Size(0, 42),
                           ),
-                          icon: const Icon(Icons.add_rounded, size: 16),
+                          icon: const Icon(Icons.add_rounded, size: 19),
                           label: const Text(
                             'Create Playlist',
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 13.5,
                               fontWeight: FontWeight.w700,
+                              letterSpacing: 0.2,
                             ),
                           ),
                         ),
