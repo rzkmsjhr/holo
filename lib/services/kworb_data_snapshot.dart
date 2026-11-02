@@ -523,7 +523,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Titik Nadir (w/ Monita Tahalea)",
     "plays": "775,612",
     "query": "Kahitna - Titik Nadir (w/ Monita Tahalea)",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/e7/f0/0c/e7f00c5b-7e92-7206-2b33-b4510559e9fa/25UMGIM70932.rgb.jpg/600x600bb.jpg"
   },
       {
     "rank": 9,
@@ -595,7 +595,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Bahagia Lagi",
     "plays": "640,451",
     "query": "Piche Kota - Bahagia Lagi",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/0e/85/cf/0e85cf8d-7748-9044-0e7c-ea8a88efe3e4/25UM1IM53003.rgb.jpg/600x600bb.jpg"
   },
       {
     "rank": 17,
@@ -604,7 +604,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Jangan Paksa Rindu - Beda",
     "plays": "639,921",
     "query": "Ifan Seventeen - Jangan Paksa Rindu - Beda",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music221/v4/d1/c0/4c/d1c04c8b-efb8-b81f-bff8-5d5e86114b7a/cover.jpg/600x600bb.jpg"
   },
       {
     "rank": 18,
@@ -703,7 +703,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Serana",
     "plays": "555,114",
     "query": "For Revenge - Serana",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music112/v4/1a/39/28/1a39285a-b5fa-5fe1-b2a9-6b6e804b930d/cover.jpg/600x600bb.jpg"
   },
       {
     "rank": 29,
@@ -829,7 +829,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Soulmate",
     "plays": "445,223",
     "query": "Kahitna - Soulmate",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/df/26/5c/df265ce9-8c33-fbc8-73ef-15000a09bfca/24UMGIM29506.rgb.jpg/600x600bb.jpg"
   },
       {
     "rank": 43,
@@ -874,7 +874,7 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Merry Christmas, Please Don't Call",
     "plays": "429,798",
     "query": "Bleachers - Merry Christmas, Please Don't Call",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/ce/63/85/ce638513-9167-2a5c-2c4a-94b4c8f9f88f/198704216732_Cover.jpg/600x600bb.jpg"
   },
       {
     "rank": 48,
@@ -901,6 +901,6 @@ const List<Map<String, dynamic>> kIndonesiaTop50Snapshot = [
     "title": "Dinda",
     "plays": "419,313",
     "query": "MASDO - Dinda",
-    "thumbnailUrl": "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500"
+    "thumbnailUrl": "https://is1-ssl.mzstatic.com/image/thumb/Music122/v4/e9/9a/7f/e99a7f4a-5bc3-eb48-c3b5-877e440a207b/5054197429200.jpg/600x600bb.jpg"
   }
 ];

@@ -324,10 +324,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 52,
                   height: double.infinity,
                   child: Builder(builder: (context) {
-                    final art = (track.highResThumbnailUrl.isNotEmpty)
-                        ? track.highResThumbnailUrl
-                        : (track.thumbnailUrl.isNotEmpty
-                            ? track.thumbnailUrl
+                    final rawHigh = track.highResThumbnailUrl;
+                    final rawThumb = track.thumbnailUrl;
+                    final validHigh = rawHigh.isNotEmpty && !rawHigh.contains('unsplash.com');
+                    final validThumb = rawThumb.isNotEmpty && !rawThumb.contains('unsplash.com');
+                    final art = validHigh
+                        ? rawHigh
+                        : (validThumb
+                            ? rawThumb
                             : player.getArtwork(track.artist, track.title));
 
                     if (art == null || art.isEmpty) {
@@ -1122,9 +1126,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 46,
                   color: AppColors.secondary,
                   child: Builder(builder: (context) {
-                    final art = (item.thumbnailUrl != null &&
-                            item.thumbnailUrl!.isNotEmpty)
-                        ? item.thumbnailUrl
+                    final rawThumb = item.thumbnailUrl;
+                    final validThumb = rawThumb != null &&
+                            rawThumb.isNotEmpty &&
+                            !rawThumb.contains('unsplash.com');
+                    final art = validThumb
+                        ? rawThumb
                         : player.getArtwork(item.artist, item.title);
 
                     if (art == null || art.isEmpty) {

@@ -39,7 +39,7 @@ class Track {
 
   /// Upgrades any thumbnail URL to its highest definition master resolution
   static String toHighResUrl(String? url) {
-    if (url == null || url.isEmpty) return '';
+    if (url == null || url.isEmpty || url.contains('unsplash.com')) return '';
     var highRes = url;
     if (highRes.contains('googleusercontent.com')) {
       highRes = highRes.replaceAll(RegExp(r'=w\d+-h\d+'), '=w1080-h1080');
@@ -48,8 +48,6 @@ class Track {
       highRes = highRes.replaceAll(
           RegExp(r'/(?:default|mqdefault|hqdefault|sddefault)\.jpg'),
           '/maxresdefault.jpg');
-    } else if (highRes.contains('unsplash.com')) {
-      highRes = highRes.replaceAll(RegExp(r'w=\d+'), 'w=1080');
     }
     return highRes;
   }
@@ -107,12 +105,14 @@ class Track {
   }
 
   factory Track.fromJson(Map<String, dynamic> json) {
+    final rawThumb = json['thumbnailUrl'] as String? ?? '';
+    final cleanThumb = rawThumb.contains('unsplash.com') ? '' : rawThumb;
     return Track(
       id: json['id'] as String,
       title: TextEncodingUtils.cleanMojibake(json['title'] as String),
       artist: TextEncodingUtils.cleanMojibake(json['artist'] as String),
       album: TextEncodingUtils.cleanMojibake(json['album'] as String? ?? ''),
-      thumbnailUrl: json['thumbnailUrl'] as String? ?? '',
+      thumbnailUrl: cleanThumb,
       durationSeconds: (json['durationSeconds'] as num?)?.toInt() ?? 0,
       isExplicit: json['isExplicit'] as bool? ?? false,
       youtubeVideoId: json['youtubeVideoId'] as String?,

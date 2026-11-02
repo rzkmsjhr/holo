@@ -24,6 +24,8 @@ class TrendingTrack {
   });
 
   factory TrendingTrack.fromMap(Map<String, dynamic> map) {
+    final rawThumb = map['thumbnailUrl'] as String?;
+    final cleanThumb = (rawThumb != null && !rawThumb.contains('unsplash.com')) ? rawThumb : null;
     return TrendingTrack(
       rank: map['rank'] as int? ?? 1,
       trend: map['trend'] as String? ?? '=',
@@ -31,7 +33,7 @@ class TrendingTrack {
       title: TextEncodingUtils.cleanMojibake(map['title'] as String? ?? 'Unknown Title'),
       plays: map['plays'] as String? ?? '0',
       query: TextEncodingUtils.cleanMojibake(map['query'] as String? ?? ''),
-      thumbnailUrl: map['thumbnailUrl'] as String?,
+      thumbnailUrl: cleanThumb,
       youtubeVideoId: map['youtubeVideoId'] as String?,
     );
   }

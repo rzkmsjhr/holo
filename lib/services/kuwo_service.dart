@@ -174,9 +174,7 @@ class KuwoService {
         title: name,
         artist: artist,
         album: albumName,
-        thumbnailUrl: picUrl.isNotEmpty
-            ? picUrl
-            : 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=500',
+        thumbnailUrl: picUrl,
         durationSeconds: dur,
         flacStreamUrl: null, // Resolved on-demand when user clicks
         audioSource: 'kuwo',
