@@ -56,6 +56,10 @@ class MonochromeService {
         final recordingId = t['recordingId'] ?? id;
         final streamUrl = '$baseUrl/track/$recordingId';
 
+        final isHiRes = t['audioQuality'] == 'HI_RES_LOSSLESS' ||
+            t['audioQuality'] == 'HI_RES' ||
+            t['bitDepth'] == 24;
+
         tracks.add(Track(
           id: 'mono_$id',
           title: title,
@@ -65,7 +69,9 @@ class MonochromeService {
           flacStreamUrl: streamUrl,
           audioSource: 'monochrome',
           isLossless: true,
-          audioFormat: '24-bit • 96kHz',
+          audioFormat: isHiRes
+              ? '24-bit • 96kHz Lossless FLAC'
+              : '16-bit • 44.1kHz Lossless FLAC',
         ));
       }
 
@@ -76,7 +82,7 @@ class MonochromeService {
     }
   }
 
-  /// Verifies that a Monochrome stream URL is reachable and serves valid audio bytes.
+  /// Verifies that a Monochrome stream URL is reachable and strictly serves valid FLAC audio bytes.
   Future<bool> verifyStreamUrl(String url) async {
     if (url.isEmpty) return false;
     try {
@@ -100,7 +106,16 @@ class MonochromeService {
         return false;
       }
 
-      return res.bodyBytes.isNotEmpty;
+      // A genuine lossless FLAC stream strictly starts with the 4-byte ASCII signature 'fLaC' [0x66, 0x4C, 0x61, 0x43]
+      if (res.bodyBytes.length >= 4) {
+        final isFlacHeader = res.bodyBytes[0] == 0x66 &&
+            res.bodyBytes[1] == 0x4C &&
+            res.bodyBytes[2] == 0x61 &&
+            res.bodyBytes[3] == 0x43;
+        return isFlacHeader;
+      }
+
+      return false;
     } catch (_) {
       return false;
     }

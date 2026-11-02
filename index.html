@@ -1897,9 +1897,9 @@
 
         <!-- Hi-Res Badge & Output Device -->
         <div class="sheet-device-bar">
-          <div class="audio-format-badge">
-            <span class="audio-format-accent">FLAC</span>
-            <span>24-bit • 96kHz Lossless</span>
+          <div class="audio-format-badge" id="audioFormatBadge">
+            <span class="audio-format-accent" id="audioFormatPill">FLAC</span>
+            <span id="audioFormatText">24-bit • 96kHz Lossless</span>
           </div>
 
           <button class="device-picker-btn" id="btnDevicePicker" aria-label="Connected audio output">
@@ -2110,7 +2110,10 @@
           duration: 214, // 3:34
           explicit: false,
           colors: ["#FF5416", "#5A32A3", "#CCFF00"],
-          accent: "#CCFF00"
+          accent: "#CCFF00",
+          isLossless: true,
+          isHiRes: true,
+          audioFormat: "24-bit • 96kHz Lossless FLAC"
         },
         {
           id: 1,
@@ -2120,7 +2123,10 @@
           duration: 248, // 4:08
           explicit: false,
           colors: ["#2563EB", "#7C3AED", "#60A5FA"],
-          accent: "#60A5FA"
+          accent: "#60A5FA",
+          isLossless: true,
+          isHiRes: false,
+          audioFormat: "16-bit • 44.1kHz Lossless FLAC"
         },
         {
           id: 2,
@@ -2130,7 +2136,10 @@
           duration: 182, // 3:02
           explicit: true,
           colors: ["#F59E0B", "#DC2626", "#CCFF00"],
-          accent: "#CCFF00"
+          accent: "#CCFF00",
+          isLossless: false,
+          isHiRes: false,
+          audioFormat: "YouTube Audio (160kbps)"
         },
         {
           id: 3,
@@ -2140,7 +2149,10 @@
           duration: 295, // 4:55
           explicit: false,
           colors: ["#10B981", "#065F46", "#34D399"],
-          accent: "#34D399"
+          accent: "#34D399",
+          isLossless: true,
+          isHiRes: true,
+          audioFormat: "24-bit • 96kHz Lossless FLAC"
         },
         {
           id: 4,
@@ -2150,7 +2162,10 @@
           duration: 236, // 3:56
           explicit: false,
           colors: ["#EC4899", "#8B5CF6", "#F472B6"],
-          accent: "#F472B6"
+          accent: "#F472B6",
+          isLossless: true,
+          isHiRes: false,
+          audioFormat: "16-bit • 44.1kHz Lossless FLAC"
         },
         {
           id: 5,
@@ -2160,7 +2175,10 @@
           duration: 204, // 3:24
           explicit: true,
           colors: ["#6366F1", "#1E1B4B", "#A5B4FC"],
-          accent: "#A5B4FC"
+          accent: "#A5B4FC",
+          isLossless: false,
+          isHiRes: false,
+          audioFormat: "YouTube Audio (160kbps)"
         }
       ];
 
@@ -2389,6 +2407,28 @@
         playerTrackArtist.textContent = track.artist;
         miniTitle.textContent = track.title;
         miniArtist.textContent = track.artist;
+
+        // Dynamic Audio Format Badge (FLAC / HI-RES / STEREO)
+        const formatPill = document.getElementById('audioFormatPill');
+        const formatText = document.getElementById('audioFormatText');
+        if (formatPill && formatText) {
+          if (track.isLossless === false) {
+            formatPill.textContent = 'STEREO';
+            formatPill.style.background = '#222736';
+            formatPill.style.color = '#8F9CAE';
+            formatText.textContent = track.audioFormat || 'YouTube Audio (160kbps)';
+          } else if (track.isHiRes) {
+            formatPill.textContent = 'HI-RES';
+            formatPill.style.background = '#0A0C10';
+            formatPill.style.color = 'var(--color-accent)';
+            formatText.textContent = track.audioFormat || '24-bit • 96kHz Lossless FLAC';
+          } else {
+            formatPill.textContent = 'FLAC';
+            formatPill.style.background = '#0A0C10';
+            formatPill.style.color = 'var(--color-accent)';
+            formatText.textContent = track.audioFormat || '16-bit • 44.1kHz Lossless FLAC';
+          }
+        }
 
         // Ambient colored mesh glow
         ambientGlow.style.background = `radial-gradient(circle, ${track.colors[0]}55 0%, ${track.colors[1]}33 65%, transparent 100%)`;

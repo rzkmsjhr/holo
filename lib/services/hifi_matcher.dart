@@ -532,10 +532,14 @@ class HifiMatcher {
       }
     }
 
+    Track? kuwoElevated;
+    bool kuwoIsHiRes = false;
+
     if (bestKuwoCand != null && bestKuwoFlacBitrate != null) {
       final songId = bestKuwoCand['id']?.toString() ?? '';
       final time = bestKuwoCand['time'];
       final sign = bestKuwoCand['sign']?.toString() ?? '';
+      kuwoIsHiRes = _kuwoService.isHiResFlac(bestKuwoCand);
 
       final flacUrl = await _kuwoService.getFlacStreamUrl(
         songId: songId,
@@ -545,25 +549,33 @@ class HifiMatcher {
       );
 
       if (flacUrl != null && flacUrl.isNotEmpty) {
-        final elevated = youtubeTrack.copyWith(
+        kuwoElevated = youtubeTrack.copyWith(
           flacStreamUrl: flacUrl,
           audioSource: 'kuwo',
           isLossless: true,
-          audioFormat: '16-bit • 44.1kHz',
+          audioFormat: kuwoIsHiRes
+              ? '24-bit • 96kHz Lossless FLAC'
+              : '16-bit • 44.1kHz Lossless FLAC',
           extraData: {
             ...?youtubeTrack.extraData,
             'hifiVersion': matcherVersion,
             'hifiId': 'kuwo_$songId',
             'matchScore': bestKuwoScore,
+            'isHiRes': kuwoIsHiRes,
+            'bitrate': bestKuwoFlacBitrate,
           },
         );
-        _resolutionCache[trackIdKey] = elevated;
-        _resolutionCache[textKey] = elevated;
-        return elevated;
+
+        // If Kuwo already found a 24-bit Hi-Res master, return immediately
+        if (kuwoIsHiRes) {
+          _resolutionCache[trackIdKey] = kuwoElevated;
+          _resolutionCache[textKey] = kuwoElevated;
+          return kuwoElevated;
+        }
       }
     }
 
-    // 2. Secondary Fallback Provider: Monochrome FLAC
+    // 2. Secondary Provider: Monochrome FLAC (check for 24-bit Hi-Res master or Kuwo fallback)
     try {
       final monoCandidates = await _monochromeService.searchTracks(
         '$cleanedTitle $targetArtist',
@@ -591,29 +603,43 @@ class HifiMatcher {
       }
 
       if (bestMonoCand != null && bestMonoCand.flacStreamUrl != null) {
+        final monoFormat = bestMonoCand.audioFormat ?? '16-bit • 44.1kHz Lossless FLAC';
+        final monoIsHiRes = monoFormat.contains('24-bit') || monoFormat.contains('96kHz');
+
         // Verify stream URL before elevating
         final isVerified = await _monochromeService
             .verifyStreamUrl(bestMonoCand.flacStreamUrl!);
 
         if (isVerified) {
-          final elevated = youtubeTrack.copyWith(
-            flacStreamUrl: bestMonoCand.flacStreamUrl,
-            audioSource: 'monochrome',
-            isLossless: true,
-            audioFormat: '24-bit • 96kHz',
-            extraData: {
-              ...?youtubeTrack.extraData,
-              'hifiVersion': matcherVersion,
-              'hifiId': bestMonoCand.id,
-              'matchScore': bestMonoScore,
-            },
-          );
-          _resolutionCache[trackIdKey] = elevated;
-          _resolutionCache[textKey] = elevated;
-          return elevated;
+          // If Monochrome provides 24-bit Hi-Res, it beats standard 16-bit Kuwo SQ FLAC
+          if (monoIsHiRes || kuwoElevated == null) {
+            final elevated = youtubeTrack.copyWith(
+              flacStreamUrl: bestMonoCand.flacStreamUrl,
+              audioSource: 'monochrome',
+              isLossless: true,
+              audioFormat: monoFormat,
+              extraData: {
+                ...?youtubeTrack.extraData,
+                'hifiVersion': matcherVersion,
+                'hifiId': bestMonoCand.id,
+                'matchScore': bestMonoScore,
+                'isHiRes': monoIsHiRes,
+              },
+            );
+            _resolutionCache[trackIdKey] = elevated;
+            _resolutionCache[textKey] = elevated;
+            return elevated;
+          }
         }
       }
     } catch (_) {}
+
+    // Return Kuwo 16-bit SQ FLAC if Monochrome didn't provide a superior Hi-Res stream
+    if (kuwoElevated != null) {
+      _resolutionCache[trackIdKey] = kuwoElevated;
+      _resolutionCache[textKey] = kuwoElevated;
+      return kuwoElevated;
+    }
 
     // 3. Mark as unmatched for fast replay
     _unmatchedCache.add(trackIdKey);

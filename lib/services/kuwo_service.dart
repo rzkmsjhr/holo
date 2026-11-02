@@ -45,11 +45,12 @@ class KuwoService {
 
   /// Extracts the highest-bitrate FLAC option from a Kuwo candidate's minfo list.
   /// Returns null if the candidate does not offer a lossless FLAC stream.
+  /// Prioritizes Hi-Res master streams (level zg/hir or bitrate >= 4000) over standard SQ FLAC.
   String? extractFlacBitrate(Map<String, dynamic> candidate) {
     final minfos = candidate['minfo'];
     if (minfos is! List) return null;
 
-    int bestBitrate = 0;
+    int bestWeight = 0;
     String? bestBitrateStr;
 
     for (final m in minfos) {
@@ -58,15 +59,45 @@ class KuwoService {
         if (fmt == 'flac') {
           final brStr = m['bitrate']?.toString().trim() ?? '2000';
           final brVal = int.tryParse(brStr) ?? 2000;
-          if (brVal >= bestBitrate) {
-            bestBitrate = brVal;
-            bestBitrateStr = brStr;
+          final level = m['level']?.toString().trim().toLowerCase() ?? '';
+
+          // Weight scoring: Hi-Res levels (zg/hir or >= 4000) get top priority
+          var weight = brVal;
+          if (level == 'zg' || level == 'hir' || brVal >= 4000) {
+            weight = brVal > 4000 ? brVal : 4000;
+          }
+
+          if (weight >= bestWeight) {
+            bestWeight = weight;
+            bestBitrateStr = brStr.isNotEmpty && brStr != '0'
+                ? brStr
+                : (weight >= 4000 ? '4000' : '2000');
           }
         }
       }
     }
 
     return bestBitrateStr;
+  }
+
+  /// Checks if candidate offers a 24-bit Hi-Res master FLAC stream
+  bool isHiResFlac(Map<String, dynamic> candidate) {
+    final minfos = candidate['minfo'];
+    if (minfos is! List) return false;
+
+    for (final m in minfos) {
+      if (m is Map) {
+        final fmt = m['format']?.toString().trim().toLowerCase() ?? '';
+        if (fmt == 'flac') {
+          final level = m['level']?.toString().trim().toLowerCase() ?? '';
+          final brVal = int.tryParse(m['bitrate']?.toString().trim() ?? '0') ?? 0;
+          if (level == 'zg' || level == 'hir' || brVal >= 4000) {
+            return true;
+          }
+        }
+      }
+    }
+    return false;
   }
 
   /// Resolves the direct FLAC CDN stream URL from Kuwo
@@ -137,6 +168,7 @@ class KuwoService {
       final time = c['time'];
       final sign = c['sign']?.toString() ?? '';
 
+      final isHiRes = isHiResFlac(c);
       tracks.add(Track(
         id: 'kuwo_$id',
         title: name,
@@ -149,12 +181,13 @@ class KuwoService {
         flacStreamUrl: null, // Resolved on-demand when user clicks
         audioSource: 'kuwo',
         isLossless: true,
-        audioFormat: '16-bit • 44.1kHz',
+        audioFormat: isHiRes ? '24-bit • 96kHz Lossless FLAC' : '16-bit • 44.1kHz Lossless FLAC',
         extraData: {
           'songid': id,
           'time': time,
           'sign': sign,
           'bitrate': flacBitrate,
+          'isHiRes': isHiRes,
         },
       ));
     }
