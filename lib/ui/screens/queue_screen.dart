@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -203,7 +204,7 @@ class QueueScreen extends StatelessWidget {
 
                                   Widget buildYtFallback() {
                                     if (vid.length == 11) {
-                                      return Image.network(
+                                      return HoloImage(
                                         'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                         fit: BoxFit.cover,
                                         filterQuality: FilterQuality.high,
@@ -217,7 +218,7 @@ class QueueScreen extends StatelessWidget {
                                   Widget buildThumbFallback() {
                                     if (currentTrack.thumbnailUrl.isNotEmpty &&
                                         currentTrack.thumbnailUrl != art) {
-                                      return Image.network(
+                                      return HoloImage(
                                         currentTrack.thumbnailUrl,
                                         fit: BoxFit.cover,
                                         filterQuality: FilterQuality.high,
@@ -229,7 +230,7 @@ class QueueScreen extends StatelessWidget {
                                   }
 
                                   if (art != null && art.isNotEmpty) {
-                                    return Image.network(
+                                    return HoloImage(
                                       art,
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
@@ -438,7 +439,7 @@ class QueueScreen extends StatelessWidget {
 
                                         Widget buildYtFallback() {
                                           if (vid.length == 11) {
-                                            return Image.network(
+                                            return HoloImage(
                                               'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                               fit: BoxFit.cover,
                                               filterQuality: FilterQuality.high,
@@ -452,7 +453,7 @@ class QueueScreen extends StatelessWidget {
                                         Widget buildThumbFallback() {
                                           if (track.thumbnailUrl.isNotEmpty &&
                                               track.thumbnailUrl != art) {
-                                            return Image.network(
+                                            return HoloImage(
                                               track.thumbnailUrl,
                                               fit: BoxFit.cover,
                                               filterQuality: FilterQuality.high,
@@ -464,7 +465,7 @@ class QueueScreen extends StatelessWidget {
                                         }
 
                                         if (art != null && art.isNotEmpty) {
-                                          return Image.network(
+                                          return HoloImage(
                                             art,
                                             fit: BoxFit.cover,
                                             filterQuality: FilterQuality.high,

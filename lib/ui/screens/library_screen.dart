@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -590,7 +591,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     child: SizedBox(
                       width: 44,
                       height: 44,
-                      child: Image.network(
+                      child: HoloImage(
                         song.thumbnailUrl,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => Container(
@@ -823,7 +824,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     height: 80,
                     color: AppColors.primary,
                     child: heroCover != null && heroCover.isNotEmpty
-                        ? Image.network(
+                        ? HoloImage(
                             heroCover,
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => const Icon(
@@ -968,7 +969,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 height: 52,
                 color: AppColors.secondary,
                 child: cover != null && cover.isNotEmpty
-                    ? Image.network(
+                    ? HoloImage(
                         cover,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => const Icon(
@@ -1348,7 +1349,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
                                 Widget buildYtFallback() {
                                   if (vid.length == 11) {
-                                    return Image.network(
+                                    return HoloImage(
                                       'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) => placeholder(),
@@ -1360,7 +1361,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 Widget buildThumbFallback() {
                                   if (track.thumbnailUrl.isNotEmpty &&
                                       track.thumbnailUrl != art) {
-                                    return Image.network(
+                                    return HoloImage(
                                       track.thumbnailUrl,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) =>
@@ -1371,7 +1372,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                 }
 
                                 if (art != null && art.isNotEmpty) {
-                                  return Image.network(
+                                  return HoloImage(
                                     art,
                                     fit: BoxFit.cover,
                                     errorBuilder: (_, __, ___) =>

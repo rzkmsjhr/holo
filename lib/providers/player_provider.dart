@@ -9,6 +9,7 @@ import '../models/playlist.dart';
 import '../models/track.dart';
 import '../models/trending_track.dart';
 import '../services/artwork_service.dart';
+import '../services/audio_handler.dart';
 import '../services/connectivity_service.dart';
 import '../services/hifi_matcher.dart';
 import '../services/kworb_data_snapshot.dart';
@@ -201,6 +202,7 @@ class PlayerProvider extends ChangeNotifier {
     _ytResolver.onLog = logDebug;
     _ytIframeBridge.onLog = logDebug;
     logDebug('Pulse Audio Player initialized. Diagnostic logging active.');
+    _initMediaNotificationHandler();
     _initConnectivity();
     _initAudioListeners();
     _initSavedPlayerState();
@@ -211,19 +213,57 @@ class PlayerProvider extends ChangeNotifier {
     _initLikedTracks();
   }
 
+  final Set<String> _preResolvingIds = {};
+  int _lastNotifiedSec = -1;
+
+  void _initMediaNotificationHandler() {
+    final handler = HoloAudioServiceManager.handler;
+    handler.onPlay = () {
+      if (!_isPlaying) togglePlayPause();
+    };
+    handler.onPause = () {
+      if (_isPlaying) togglePlayPause();
+    };
+    handler.onSkipToNext = () => next();
+    handler.onSkipToPrevious = () => previous();
+    handler.onSeek = (pos) => seekTo(pos);
+    handler.onStop = () {
+      if (_isPlaying) togglePlayPause();
+    };
+  }
+
+  void _syncNotificationMediaItem([Track? track]) {
+    final t = track ?? _currentTrack;
+    if (t == null) return;
+    final cachedArt = getArtwork(t.artist, t.title);
+    HoloAudioServiceManager.handler.updateTrackMediaItem(
+      t,
+      resolvedArtworkUrl: cachedArt,
+      duration: _duration.inSeconds > 0 ? _duration : null,
+    );
+  }
+
+  void _syncNotificationPlaybackState() {
+    HoloAudioServiceManager.handler.syncPlaybackState(
+      isPlaying: _isPlaying,
+      isBuffering: _isBuffering,
+      position: _position,
+      bufferedPosition: _audioPlayer.bufferedPosition,
+    );
+  }
+
   void _initConnectivity() {
     final connectivity = ConnectivityService();
     connectivity.startMonitoring();
     _connectivitySub = connectivity.statusStream.listen((status) {
-      if (status == ConnectivityStatus.offline) {
-        if (_isPlaying) {
-          _playbackError = 'Connection lost. Operating offline.';
-        }
-      } else if (status == ConnectivityStatus.online && _playbackError != null) {
+      if (status == ConnectivityStatus.online && _playbackError != null) {
         if (_playbackError!.contains('connection') ||
             _playbackError!.contains('internet') ||
             _playbackError!.contains('timed out')) {
           _playbackError = null;
+          if (_currentTrack != null && !_isPlaying) {
+            playTrack(_currentTrack!);
+          }
         }
       }
       notifyListeners();
@@ -285,6 +325,10 @@ class PlayerProvider extends ChangeNotifier {
     _posSub = _audioPlayer.positionStream.listen((pos) {
       if (_isUsingYtIframe) return;
       _position = pos;
+      if (pos.inSeconds != _lastNotifiedSec) {
+        _lastNotifiedSec = pos.inSeconds;
+        _syncNotificationPlaybackState();
+      }
       notifyListeners();
     });
 
@@ -292,6 +336,7 @@ class PlayerProvider extends ChangeNotifier {
       if (_isUsingYtIframe) return;
       if (dur != null) {
         _duration = dur;
+        _syncNotificationMediaItem();
         notifyListeners();
       }
     });
@@ -301,6 +346,10 @@ class PlayerProvider extends ChangeNotifier {
       _isPlaying = state.playing;
       _isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
+      if (_isPlaying) {
+        ConnectivityService().markOnline();
+      }
+      _syncNotificationPlaybackState();
       if (state.processingState == ProcessingState.completed) {
         _handleTrackCompletion();
       }
@@ -512,6 +561,7 @@ class PlayerProvider extends ChangeNotifier {
             _currentTrack!.thumbnailUrl.contains('maxresdefault.jpg') ||
             isStudioArt)) {
       _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
+      _syncNotificationMediaItem(_currentTrack);
       changed = true;
     }
 
@@ -890,13 +940,8 @@ class PlayerProvider extends ChangeNotifier {
     _position = Duration.zero;
     _isBuffering = true;
 
-    // Check connectivity before network resolution
-    if (!isOnline && (sanitizedTrack.flacStreamUrl == null || sanitizedTrack.flacStreamUrl!.isEmpty)) {
-      _playbackError = 'No internet connection. Reconnect to stream "${sanitizedTrack.title}".';
-      _isBuffering = false;
-      notifyListeners();
-      return;
-    }
+    _syncNotificationMediaItem(sanitizedTrack);
+    _syncNotificationPlaybackState();
 
     // Resolve missing artwork in background
     if (sanitizedTrack.thumbnailUrl.isEmpty) {
@@ -905,24 +950,47 @@ class PlayerProvider extends ChangeNotifier {
           final withArt = sanitizedTrack.copyWith(thumbnailUrl: art);
           if (_currentTrack?.id == sanitizedTrack.id) {
             _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
+            _syncNotificationMediaItem(_currentTrack);
           }
           _updateTrackInQueue(withArt);
           _updateRecentlyPlayed(withArt);
           _updateAllMatchingTrackArtworks(sanitizedTrack.artist, sanitizedTrack.title, art);
         }
       });
+    } else {
+      resolveArtworkFor(sanitizedTrack.artist, sanitizedTrack.title);
     }
 
-    // Check lyrics immediately the moment song is played
-    _hasSyncedLyrics = false;
-    _currentLyrics = [];
-    _isLoadingLyrics = true;
-    notifyListeners();
-    _checkLyricsForTrack(sanitizedTrack);
+    // Check lyrics: load instantly from memory/disk cache if available
+    final cachedLyrics =
+        _lyricsService.getCachedSync(sanitizedTrack.title, sanitizedTrack.artist);
+    if (cachedLyrics != null && cachedLyrics.isNotEmpty) {
+      _currentLyrics = cachedLyrics;
+      _hasSyncedLyrics = true;
+      _isLoadingLyrics = false;
+      notifyListeners();
+    } else {
+      _hasSyncedLyrics = false;
+      _currentLyrics = [];
+      _isLoadingLyrics = true;
+      notifyListeners();
+      _checkLyricsForTrack(sanitizedTrack);
+    }
 
-    // 1. If Hi-Fi is disabled, stream strictly via YouTube
+    // 1. Instant 0ms playback if track already has a resolved stream URL
+    if (sanitizedTrack.flacStreamUrl != null &&
+        sanitizedTrack.flacStreamUrl!.isNotEmpty &&
+        (_isHifiEnabled ? sanitizedTrack.isLossless || sanitizedTrack.audioSource == 'youtube' : !sanitizedTrack.isLossless)) {
+      await _playStream(sanitizedTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
+      _triggerEndlessPlayIfNeeded();
+      _preResolveUpcomingQueue();
+      return;
+    }
+
+    final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
+
+    // 2. If Hi-Fi is disabled, stream strictly via YouTube
     if (!_isHifiEnabled) {
-      final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
       final ytRes = await _ytResolver.resolveStreamForTrack(
         title: sanitizedTrack.title,
         artist: sanitizedTrack.artist,
@@ -943,31 +1011,34 @@ class PlayerProvider extends ChangeNotifier {
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
-        _playbackError = !isOnline
+        final online = await ConnectivityService().checkConnectivity(forceImmediate: true);
+        _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
         _isBuffering = false;
+        _syncNotificationPlaybackState();
         notifyListeners();
       }
       _triggerEndlessPlayIfNeeded();
+      _preResolveUpcomingQueue();
       return;
     }
 
-    // 2. If already elevated to Hi-Fi with a direct stream URL and matches current matcher version
-    if (sanitizedTrack.flacStreamUrl != null &&
-        sanitizedTrack.flacStreamUrl!.isNotEmpty &&
-        sanitizedTrack.isLossless) {
-      await _playStream(sanitizedTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
-      _triggerEndlessPlayIfNeeded();
-      return;
-    }
-
-    // 3. Trigger Hi-Fi Checker
+    // 3. Concurrent Parallel Resolution: resolve Hi-Fi FLAC and YouTube fallback simultaneously
     _isHifiResolving = true;
     notifyListeners();
 
-    // Check Hi-Fi: Kuwo (Top Priority) -> Monochrome (Fallback) -> YouTube (Final Fallback)
-    final hifiTrack = await _hifiMatcher.matchToHifi(sanitizedTrack);
+    final hifiFuture = _hifiMatcher.matchToHifi(sanitizedTrack);
+    final ytFuture = _ytResolver.resolveStreamForTrack(
+      title: sanitizedTrack.title,
+      artist: sanitizedTrack.artist,
+      primaryVideoId: vId,
+    );
+
+    final hifiTrack = await hifiFuture.timeout(
+      const Duration(milliseconds: 1400),
+      onTimeout: () => null,
+    );
     _isHifiResolving = false;
 
     if (hifiTrack != null && hifiTrack.flacStreamUrl != null) {
@@ -975,16 +1046,20 @@ class PlayerProvider extends ChangeNotifier {
       _currentTrack = hifiTrack;
       _updateTrackInQueue(hifiTrack);
       _updateRecentlyPlayed(hifiTrack);
+      _syncNotificationMediaItem(hifiTrack);
       notifyListeners();
       await _playStream(hifiTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
     } else {
-      // Fallback: YouTube stream resolution
-      final vId = sanitizedTrack.youtubeVideoId ?? sanitizedTrack.id;
-      final ytRes = await _ytResolver.resolveStreamForTrack(
-        title: sanitizedTrack.title,
-        artist: sanitizedTrack.artist,
-        primaryVideoId: vId,
-      );
+      // If Hi-Fi timed out, cache it in background when it finishes for next replay
+      hifiFuture.then((lateHifi) {
+        if (lateHifi != null && lateHifi.flacStreamUrl != null) {
+          _updateTrackInQueue(lateHifi);
+          _updateRecentlyPlayed(lateHifi);
+        }
+      }).catchError((_) {});
+
+      // Immediate fallback: YouTube stream was already resolving in parallel!
+      final ytRes = await ytFuture;
 
       if (ytRes.isSuccess && ytRes.url != null) {
         final ytTrack = sanitizedTrack.copyWith(
@@ -997,27 +1072,90 @@ class PlayerProvider extends ChangeNotifier {
         _currentTrack = ytTrack;
         _updateTrackInQueue(ytTrack);
         _updateRecentlyPlayed(ytTrack);
+        _syncNotificationMediaItem(ytTrack);
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
-        _playbackError = !isOnline
+        final online = await ConnectivityService().checkConnectivity(forceImmediate: true);
+        _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
         _isBuffering = false;
+        _syncNotificationPlaybackState();
         notifyListeners();
       }
     }
 
     _triggerEndlessPlayIfNeeded();
+    _preResolveUpcomingQueue();
+  }
+
+  /// Pre-resolves stream URLs, album art, and lyrics for the next 2 tracks in queue
+  /// so track transitions (including when screen is off) are instant 0ms.
+  void _preResolveUpcomingQueue() {
+    if (_queue.length <= 1) return;
+    for (int offset = 1; offset <= 2; offset++) {
+      final idx = _currentIndex + offset;
+      if (idx >= 0 && idx < _queue.length) {
+        final upcoming = _queue[idx];
+        if (upcoming.flacStreamUrl == null || upcoming.flacStreamUrl!.isEmpty) {
+          _preResolveSingleTrack(upcoming);
+        }
+        resolveArtworkFor(upcoming.artist, upcoming.title);
+        _lyricsService
+            .fetchLyrics(
+              trackName: upcoming.title,
+              artistName: upcoming.artist,
+              durationSeconds: upcoming.durationSeconds,
+              youtubeVideoId: upcoming.youtubeVideoId,
+            )
+            .catchError((_) => <LyricLine>[]);
+      }
+    }
+  }
+
+  Future<void> _preResolveSingleTrack(Track track) async {
+    final key = track.youtubeVideoId ?? track.id;
+    if (_preResolvingIds.contains(key)) return;
+    _preResolvingIds.add(key);
+    try {
+      if (_isHifiEnabled && HifiMatcher.isEligibleTrack(track)) {
+        final hifi = await _hifiMatcher.matchToHifi(track);
+        if (hifi != null && hifi.flacStreamUrl != null) {
+          _updateTrackInQueue(hifi);
+          return;
+        }
+      }
+      final ytRes = await _ytResolver.resolveStreamForTrack(
+        title: track.title,
+        artist: track.artist,
+        primaryVideoId: key,
+      );
+      if (ytRes.isSuccess && ytRes.url != null) {
+        final ytTrack = track.copyWith(
+          youtubeVideoId: ytRes.videoId ?? key,
+          flacStreamUrl: ytRes.url,
+          audioSource: 'youtube',
+          isLossless: false,
+          audioFormat: 'YouTube Audio (160kbps)',
+        );
+        _updateTrackInQueue(ytTrack);
+      }
+    } catch (_) {
+    } finally {
+      _preResolvingIds.remove(key);
+    }
   }
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
+    ConnectivityService().markOnline();
     if (url.startsWith('yt-iframe://')) {
       final videoId = url.substring('yt-iframe://'.length).trim();
       logDebug('_playStream: playing YouTube videoId "$videoId" via Cloudflare Worker IFrame Bridge');
       _isUsingYtIframe = true;
       _isBuffering = true;
       _playbackError = null;
+      _syncNotificationPlaybackState();
       notifyListeners();
       try {
         await _audioPlayer.stop();
@@ -1037,6 +1175,7 @@ class PlayerProvider extends ChangeNotifier {
       logDebug('_playStream: setUrl succeeded. Setting volume and playing...');
       await _audioPlayer.setVolume(_volume);
       await _audioPlayer.play();
+      _syncNotificationPlaybackState();
       logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
       logDebug('_playStream: caught exception: $e');
@@ -1224,6 +1363,7 @@ class PlayerProvider extends ChangeNotifier {
     _queue.add(sanitized);
     _persistPlayerState();
     notifyListeners();
+    _preResolveUpcomingQueue();
     _resolveTrackHiFiInBackground(sanitized);
   }
 
@@ -1232,6 +1372,7 @@ class PlayerProvider extends ChangeNotifier {
     _queue.addAll(sanitizedList);
     _persistPlayerState();
     notifyListeners();
+    _preResolveUpcomingQueue();
     _resolveQueueHiFiInBackground();
   }
 
@@ -1274,6 +1415,7 @@ class PlayerProvider extends ChangeNotifier {
               (nextTrack.youtubeVideoId ?? nextTrack.id))) {
         _queue.add(nextTrack);
         notifyListeners();
+        _preResolveUpcomingQueue();
         _resolveTrackHiFiInBackground(nextTrack);
 
         // Pre-fetch a second vibe track so there is always a buffer
@@ -1287,6 +1429,7 @@ class PlayerProvider extends ChangeNotifier {
                 (secondTrack.youtubeVideoId ?? secondTrack.id))) {
           _queue.add(secondTrack);
           notifyListeners();
+          _preResolveUpcomingQueue();
           _resolveTrackHiFiInBackground(secondTrack);
         }
       }

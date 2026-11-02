@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -463,7 +464,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
         children: [
           // Background Image
           if (imageUrl.isNotEmpty)
-            Image.network(
+            HoloImage(
               imageUrl,
               fit: BoxFit.cover,
               alignment: const Alignment(0, -0.2),
@@ -776,7 +777,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
               child: SizedBox(
                 width: 44,
                 height: 44,
-                child: Image.network(
+                child: HoloImage(
                   song.thumbnailUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => Container(
@@ -928,7 +929,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
                         borderRadius: BorderRadius.circular(10),
                         child: AspectRatio(
                           aspectRatio: 1,
-                          child: Image.network(
+                          child: HoloImage(
                             release.thumbnailUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Container(

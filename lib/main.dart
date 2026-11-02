@@ -1,8 +1,10 @@
+import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'core/theme/app_theme.dart';
 import 'providers/player_provider.dart';
+import 'services/audio_handler.dart';
 import 'ui/screens/home_screen.dart';
 import 'ui/screens/search_screen.dart';
 import 'ui/screens/library_screen.dart';
@@ -10,8 +12,13 @@ import 'ui/widgets/mini_player.dart';
 import 'ui/widgets/bottom_nav_bar.dart';
 import 'ui/widgets/network_status_banner.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    final session = await AudioSession.instance;
+    await session.configure(const AudioSessionConfiguration.music());
+  } catch (_) {}
+  await HoloAudioServiceManager.init();
   runApp(
     MultiProvider(
       providers: [

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../core/utils/text_encoding_utils.dart';
 
@@ -8,13 +9,74 @@ class LyricLine {
   final String text;
 
   LyricLine({required this.timestamp, required this.text});
+
+  Map<String, dynamic> toJson() => {
+        'ms': timestamp.inMilliseconds,
+        'text': text,
+      };
+
+  factory LyricLine.fromJson(Map<String, dynamic> json) {
+    return LyricLine(
+      timestamp: Duration(milliseconds: (json['ms'] as num?)?.toInt() ?? 0),
+      text: json['text']?.toString() ?? '',
+    );
+  }
 }
 
 class LyricsService {
   static const String _lrclibGetUrl = 'https://lrclib.net/api/get';
   static const String _lrclibSearchUrl = 'https://lrclib.net/api/search';
+  static const String _diskPrefix = 'lyrics_cache_v1_';
 
   static final Map<String, List<LyricLine>> _cache = {};
+
+  static String _makeKey(String title, String artist) =>
+      '${title.toLowerCase().trim()}|${artist.toLowerCase().trim()}';
+
+  /// Returns cached lyrics synchronously from memory if already loaded
+  List<LyricLine>? getCachedSync(String trackName, String artistName) {
+    final k1 = _makeKey(trackName, artistName);
+    if (_cache.containsKey(k1) && _cache[k1]!.isNotEmpty) {
+      return _cache[k1];
+    }
+    final k2 = _makeKey(cleanTitle(trackName), cleanArtist(artistName));
+    if (_cache.containsKey(k2) && _cache[k2]!.isNotEmpty) {
+      return _cache[k2];
+    }
+    return null;
+  }
+
+  Future<List<LyricLine>?> _loadFromDisk(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('$_diskPrefix$key');
+      if (raw != null && raw.isNotEmpty) {
+        final List<dynamic> decoded = jsonDecode(raw);
+        final lines = decoded
+            .map((e) => LyricLine.fromJson(e as Map<String, dynamic>))
+            .toList();
+        if (lines.isNotEmpty) {
+          _cache[key] = lines;
+          return lines;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _saveToDisk(String key1, String key2, List<LyricLine> lines) async {
+    if (lines.isEmpty) return;
+    _cache[key1] = lines;
+    _cache[key2] = lines;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final encoded = jsonEncode(lines.map((l) => l.toJson()).toList());
+      await prefs.setString('$_diskPrefix$key1', encoded);
+      if (key2 != key1) {
+        await prefs.setString('$_diskPrefix$key2', encoded);
+      }
+    } catch (_) {}
+  }
 
   /// Cleans titles of common YouTube metadata noise to maximize LRCLIB match rates
   String cleanTitle(String title) {
@@ -220,17 +282,27 @@ class LyricsService {
     int? durationSeconds,
     String? youtubeVideoId,
   }) async {
-    final cacheKey = '$trackName|$artistName';
-    if (_cache.containsKey(cacheKey) &&
-        _cache[cacheKey] != null &&
-        _cache[cacheKey]!.isNotEmpty) {
-      return _cache[cacheKey]!;
-    }
-
     final cleanedTitle = cleanTitle(trackName);
     final cleanedArtist = cleanArtist(artistName);
+    final cacheKey = _makeKey(trackName, artistName);
+    final cleanKey = _makeKey(cleanedTitle, cleanedArtist);
 
-    // Parallel fetch: try both LRCLIB and YouTube closed captions simultaneously
+    // 1. Check in-memory cache
+    final memCached = getCachedSync(trackName, artistName);
+    if (memCached != null && memCached.isNotEmpty) {
+      return memCached;
+    }
+
+    // 2. Check persistent disk cache (SharedPreferences)
+    final diskCached =
+        await _loadFromDisk(cacheKey) ?? await _loadFromDisk(cleanKey);
+    if (diskCached != null && diskCached.isNotEmpty) {
+      _cache[cacheKey] = diskCached;
+      _cache[cleanKey] = diskCached;
+      return diskCached;
+    }
+
+    // 3. Parallel fetch: try both LRCLIB and YouTube closed captions simultaneously
     final lrclibFuture = _fetchFromLrclibAll(
       cleanedTitle: cleanedTitle,
       cleanedArtist: cleanedArtist,
@@ -254,22 +326,22 @@ class LyricsService {
     final ytResult = results[1];
 
     if (_isValidLyrics(lrclibResult)) {
-      _cache[cacheKey] = lrclibResult;
+      await _saveToDisk(cacheKey, cleanKey, lrclibResult);
       return lrclibResult;
     }
 
     if (_isValidLyrics(ytResult)) {
-      _cache[cacheKey] = ytResult;
+      await _saveToDisk(cacheKey, cleanKey, ytResult);
       return ytResult;
     }
 
     if (lrclibResult.isNotEmpty) {
-      _cache[cacheKey] = lrclibResult;
+      await _saveToDisk(cacheKey, cleanKey, lrclibResult);
       return lrclibResult;
     }
 
     if (ytResult.isNotEmpty) {
-      _cache[cacheKey] = ytResult;
+      await _saveToDisk(cacheKey, cleanKey, ytResult);
       return ytResult;
     }
 

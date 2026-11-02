@@ -527,8 +527,8 @@ class HifiMatcher {
         }
       } catch (_) {}
 
-      if (bestKuwoScore >= 120) {
-        break; // Definitive match
+      if (bestKuwoScore >= 95) {
+        break; // Strong match found on primary query; skip secondary query
       }
     }
 
@@ -566,12 +566,10 @@ class HifiMatcher {
           },
         );
 
-        // If Kuwo already found a 24-bit Hi-Res master, return immediately
-        if (kuwoIsHiRes) {
-          _resolutionCache[trackIdKey] = kuwoElevated;
-          _resolutionCache[textKey] = kuwoElevated;
-          return kuwoElevated;
-        }
+        // Return immediately as soon as Kuwo resolves a valid lossless FLAC
+        _resolutionCache[trackIdKey] = kuwoElevated;
+        _resolutionCache[textKey] = kuwoElevated;
+        return kuwoElevated;
       }
     }
 
@@ -611,35 +609,25 @@ class HifiMatcher {
             .verifyStreamUrl(bestMonoCand.flacStreamUrl!);
 
         if (isVerified) {
-          // If Monochrome provides 24-bit Hi-Res, it beats standard 16-bit Kuwo SQ FLAC
-          if (monoIsHiRes || kuwoElevated == null) {
-            final elevated = youtubeTrack.copyWith(
-              flacStreamUrl: bestMonoCand.flacStreamUrl,
-              audioSource: 'monochrome',
-              isLossless: true,
-              audioFormat: monoFormat,
-              extraData: {
-                ...?youtubeTrack.extraData,
-                'hifiVersion': matcherVersion,
-                'hifiId': bestMonoCand.id,
-                'matchScore': bestMonoScore,
-                'isHiRes': monoIsHiRes,
-              },
-            );
-            _resolutionCache[trackIdKey] = elevated;
-            _resolutionCache[textKey] = elevated;
-            return elevated;
-          }
+          final elevated = youtubeTrack.copyWith(
+            flacStreamUrl: bestMonoCand.flacStreamUrl,
+            audioSource: 'monochrome',
+            isLossless: true,
+            audioFormat: monoFormat,
+            extraData: {
+              ...?youtubeTrack.extraData,
+              'hifiVersion': matcherVersion,
+              'hifiId': bestMonoCand.id,
+              'matchScore': bestMonoScore,
+              'isHiRes': monoIsHiRes,
+            },
+          );
+          _resolutionCache[trackIdKey] = elevated;
+          _resolutionCache[textKey] = elevated;
+          return elevated;
         }
       }
     } catch (_) {}
-
-    // Return Kuwo 16-bit SQ FLAC if Monochrome didn't provide a superior Hi-Res stream
-    if (kuwoElevated != null) {
-      _resolutionCache[trackIdKey] = kuwoElevated;
-      _resolutionCache[textKey] = kuwoElevated;
-      return kuwoElevated;
-    }
 
     // 3. Mark as unmatched for fast replay
     _unmatchedCache.add(trackIdKey);

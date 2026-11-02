@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -174,7 +175,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             ],
                           ),
                           child: coverUrl != null && coverUrl.isNotEmpty
-                              ? Image.network(
+                              ? HoloImage(
                                   coverUrl,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => const Center(
@@ -519,7 +520,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
                     Widget buildYtFallback() {
                       if (vid.length == 11) {
-                        return Image.network(
+                        return HoloImage(
                           'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => placeholder(),
@@ -531,7 +532,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     Widget buildThumbFallback() {
                       if (track.thumbnailUrl.isNotEmpty &&
                           track.thumbnailUrl != art) {
-                        return Image.network(
+                        return HoloImage(
                           track.thumbnailUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) =>
@@ -542,7 +543,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                     }
 
                     if (art != null && art.isNotEmpty) {
-                      return Image.network(
+                      return HoloImage(
                         art,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) =>

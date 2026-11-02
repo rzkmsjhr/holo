@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 
 enum ConnectivityStatus {
@@ -7,19 +8,22 @@ enum ConnectivityStatus {
   offline,
 }
 
-class ConnectivityService {
+class ConnectivityService with WidgetsBindingObserver {
   static final ConnectivityService _instance = ConnectivityService._internal();
   factory ConnectivityService() => _instance;
   ConnectivityService._internal();
 
   static const String _primaryPingUrl =
-      'https://itunes.apple.com/search?term=ping&limit=1';
+      'https://clients3.google.com/generate_204';
   static const String _secondaryPingUrl =
-      'https://cloudflare-dns.com/dns-query?name=google.com&type=A';
-  static const Duration _checkInterval = Duration(seconds: 15);
-  static const Duration _pingTimeout = Duration(seconds: 6);
+      'https://itunes.apple.com/search?term=ping&limit=1';
+  static const Duration _checkInterval = Duration(seconds: 25);
+  static const Duration _pingTimeout = Duration(seconds: 7);
 
   Timer? _timer;
+  bool _isObserverRegistered = false;
+  bool _isInForeground = true;
+  int _consecutiveFailures = 0;
   ConnectivityStatus _currentStatus = ConnectivityStatus.online;
   int _lastLatencyMs = 0;
   final StreamController<ConnectivityStatus> _statusController =
@@ -33,16 +37,60 @@ class ConnectivityService {
 
   void startMonitoring() {
     if (_timer != null) return;
+    try {
+      if (!_isObserverRegistered) {
+        WidgetsBinding.instance.addObserver(this);
+        _isObserverRegistered = true;
+      }
+    } catch (_) {}
+
     checkConnectivity();
-    _timer = Timer.periodic(_checkInterval, (_) => checkConnectivity());
+    _timer = Timer.periodic(_checkInterval, (_) {
+      // Do not run passive pings when screen is off / app is in background
+      // to prevent Android Doze socket throttling from triggering false offline states.
+      if (_isInForeground) {
+        checkConnectivity();
+      }
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasInForeground = _isInForeground;
+    _isInForeground = state == AppLifecycleState.resumed;
+    if (!wasInForeground && _isInForeground) {
+      // Reset failure counter on wake and verify silently
+      _consecutiveFailures = 0;
+      if (_currentStatus == ConnectivityStatus.offline) {
+        markOnline();
+      }
+    }
+  }
+
+  void markOnline() {
+    _consecutiveFailures = 0;
+    if (_currentStatus != ConnectivityStatus.online) {
+      _currentStatus = ConnectivityStatus.online;
+      _statusController.add(_currentStatus);
+    }
   }
 
   void stopMonitoring() {
     _timer?.cancel();
     _timer = null;
+    try {
+      if (_isObserverRegistered) {
+        WidgetsBinding.instance.removeObserver(this);
+        _isObserverRegistered = false;
+      }
+    } catch (_) {}
   }
 
-  Future<bool> checkConnectivity() async {
+  Future<bool> checkConnectivity({bool forceImmediate = false}) async {
+    if (!_isInForeground && !forceImmediate) {
+      return isOnline;
+    }
+
     final sw = Stopwatch()..start();
     bool reachable = false;
 
@@ -51,11 +99,11 @@ class ConnectivityService {
           .get(Uri.parse(_primaryPingUrl))
           .timeout(_pingTimeout);
       sw.stop();
-      if (res.statusCode >= 200 && res.statusCode < 400) {
+      if (res.statusCode == 204 ||
+          (res.statusCode >= 200 && res.statusCode < 400)) {
         reachable = true;
       }
     } catch (_) {
-      // Try secondary endpoint fallback
       try {
         final res = await http
             .get(Uri.parse(_secondaryPingUrl))
@@ -67,11 +115,11 @@ class ConnectivityService {
       } catch (_) {
         try {
           final res = await http
-              .get(Uri.parse('https://clients3.google.com/generate_204'))
+              .get(Uri.parse(
+                  'https://cloudflare-dns.com/dns-query?name=google.com&type=A'))
               .timeout(_pingTimeout);
           sw.stop();
-          if (res.statusCode == 204 ||
-              (res.statusCode >= 200 && res.statusCode < 400)) {
+          if (res.statusCode >= 200 && res.statusCode < 400) {
             reachable = true;
           }
         } catch (_) {
@@ -81,14 +129,20 @@ class ConnectivityService {
     }
 
     _lastLatencyMs = sw.elapsedMilliseconds;
-    ConnectivityStatus newStatus;
+    ConnectivityStatus newStatus = _currentStatus;
 
     if (!reachable) {
-      newStatus = ConnectivityStatus.offline;
-    } else if (_lastLatencyMs > 4500) {
-      newStatus = ConnectivityStatus.slow;
+      _consecutiveFailures++;
+      if (forceImmediate || _consecutiveFailures >= 2) {
+        newStatus = ConnectivityStatus.offline;
+      }
     } else {
-      newStatus = ConnectivityStatus.online;
+      _consecutiveFailures = 0;
+      if (_lastLatencyMs > 5000) {
+        newStatus = ConnectivityStatus.slow;
+      } else {
+        newStatus = ConnectivityStatus.online;
+      }
     }
 
     if (newStatus != _currentStatus) {

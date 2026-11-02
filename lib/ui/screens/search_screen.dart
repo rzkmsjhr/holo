@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -489,7 +490,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 switchInCurve: Curves.easeIn,
                 switchOutCurve: Curves.easeOut,
                 child: candidate.coverUrl.isNotEmpty
-                    ? Image.network(
+                    ? HoloImage(
                         candidate.coverUrl,
                         key: ValueKey('${genre.id}_${candidate.artist}'),
                         fit: BoxFit.cover,
@@ -631,7 +632,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
             Widget buildYtFallback() {
               if (vid.length == 11) {
-                return Image.network(
+                return HoloImage(
                   'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => placeholder(),
@@ -641,7 +642,7 @@ class _SearchScreenState extends State<SearchScreen> {
             }
 
             if (art != null && art.isNotEmpty) {
-              return Image.network(
+              return HoloImage(
                 art,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => buildYtFallback(),

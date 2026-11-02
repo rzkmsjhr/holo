@@ -1,0 +1,171 @@
+import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
+import '../models/track.dart';
+
+/// Bridges Holo's audio playback with the native Android/iOS MediaSession
+/// and persistent system notification controls.
+class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
+  VoidCallback? onPlay;
+  VoidCallback? onPause;
+  VoidCallback? onSkipToNext;
+  VoidCallback? onSkipToPrevious;
+  ValueChanged<Duration>? onSeek;
+  VoidCallback? onStop;
+
+  HoloAudioHandler() {
+    playbackState.add(
+      PlaybackState(
+        controls: const [
+          MediaControl.skipToPrevious,
+          MediaControl.play,
+          MediaControl.skipToNext,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: AudioProcessingState.idle,
+        playing: false,
+      ),
+    );
+  }
+
+  /// Updates the notification metadata & cover art.
+  Future<void> updateTrackMediaItem(
+    Track track, {
+    String? resolvedArtworkUrl,
+    Duration? duration,
+  }) async {
+    final vid = track.youtubeVideoId ?? track.id;
+    final rawArt = (resolvedArtworkUrl != null && resolvedArtworkUrl.isNotEmpty)
+        ? resolvedArtworkUrl
+        : (track.highResThumbnailUrl.isNotEmpty
+            ? track.highResThumbnailUrl
+            : (track.thumbnailUrl.isNotEmpty
+                ? track.thumbnailUrl
+                : (vid.length == 11
+                    ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg'
+                    : '')));
+
+    final artUri = rawArt.isNotEmpty ? Uri.tryParse(rawArt) : null;
+
+    final dur = (duration != null && duration.inSeconds > 0)
+        ? duration
+        : Duration(
+            seconds: track.durationSeconds > 0 ? track.durationSeconds : 180);
+
+    final item = MediaItem(
+      id: track.id,
+      album: track.album.isNotEmpty ? track.album : 'Holo Hi-Fi',
+      title: track.title,
+      artist: track.artist,
+      duration: dur,
+      artUri: artUri,
+    );
+
+    mediaItem.add(item);
+  }
+
+  void syncPlaybackState({
+    required bool isPlaying,
+    required bool isBuffering,
+    required Duration position,
+    Duration bufferedPosition = Duration.zero,
+  }) {
+    playbackState.add(
+      playbackState.value.copyWith(
+        controls: [
+          MediaControl.skipToPrevious,
+          if (isPlaying) MediaControl.pause else MediaControl.play,
+          MediaControl.skipToNext,
+        ],
+        systemActions: const {
+          MediaAction.seek,
+          MediaAction.seekForward,
+          MediaAction.seekBackward,
+        },
+        androidCompactActionIndices: const [0, 1, 2],
+        processingState: isBuffering
+            ? AudioProcessingState.buffering
+            : AudioProcessingState.ready,
+        playing: isPlaying,
+        updatePosition: position,
+        bufferedPosition:
+            bufferedPosition > position ? bufferedPosition : position,
+        speed: isPlaying ? 1.0 : 0.0,
+      ),
+    );
+  }
+
+  @override
+  Future<void> play() async {
+    onPlay?.call();
+  }
+
+  @override
+  Future<void> pause() async {
+    onPause?.call();
+  }
+
+  @override
+  Future<void> skipToNext() async {
+    onSkipToNext?.call();
+  }
+
+  @override
+  Future<void> skipToPrevious() async {
+    onSkipToPrevious?.call();
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    onSeek?.call(position);
+  }
+
+  @override
+  Future<void> stop() async {
+    onStop?.call();
+    await super.stop();
+  }
+}
+
+class HoloAudioServiceManager {
+  static HoloAudioHandler? _handler;
+  static bool _initialized = false;
+
+  static HoloAudioHandler get handler {
+    _handler ??= HoloAudioHandler();
+    return _handler!;
+  }
+
+  static Future<HoloAudioHandler> init() async {
+    if (_initialized && _handler != null) return _handler!;
+    _initialized = true;
+    if (kIsWeb) {
+      _handler = HoloAudioHandler();
+      return _handler!;
+    }
+    try {
+      _handler = await AudioService.init(
+        builder: () => HoloAudioHandler(),
+        config: const AudioServiceConfig(
+          androidNotificationChannelId: 'com.example.pulse_audio.channel.audio',
+          androidNotificationChannelName: 'Holo Music Playback',
+          androidNotificationChannelDescription:
+              'Persistent media playback controls for Holo',
+          androidNotificationIcon: 'mipmap/ic_launcher',
+          androidShowNotificationBadge: false,
+          androidNotificationClickStartsActivity: true,
+          androidStopForegroundOnPause: false,
+          androidNotificationOngoing: false,
+          preloadArtwork: true,
+        ),
+      );
+    } catch (_) {
+      _handler ??= HoloAudioHandler();
+    }
+    return _handler!;
+  }
+}

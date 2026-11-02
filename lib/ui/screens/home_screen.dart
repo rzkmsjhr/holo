@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -347,7 +348,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     Widget buildYtFallback() {
                       if (vid.length == 11) {
-                        return Image.network(
+                        return HoloImage(
                           'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                           fit: BoxFit.cover,
                           filterQuality: FilterQuality.high,
@@ -360,7 +361,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Widget buildThumbFallback() {
                       if (track.thumbnailUrl.isNotEmpty &&
                           track.thumbnailUrl != art) {
-                        return Image.network(
+                        return HoloImage(
                           track.thumbnailUrl,
                           fit: BoxFit.cover,
                           filterQuality: FilterQuality.high,
@@ -371,7 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
 
                     if (art != null && art.isNotEmpty) {
-                      return Image.network(
+                      return HoloImage(
                         art,
                         fit: BoxFit.cover,
                         filterQuality: FilterQuality.high,
@@ -471,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ),
                     child: mix.coverUrl.isNotEmpty
-                        ? Image.network(
+                        ? HoloImage(
                             mix.coverUrl,
                             fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => Icon(
@@ -625,7 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                           child: mix.coverUrl.isNotEmpty
-                              ? Image.network(
+                              ? HoloImage(
                                   mix.coverUrl,
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => const Icon(
@@ -743,7 +744,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                               Widget buildYtFallback() {
                                 if (vid.length == 11) {
-                                  return Image.network(
+                                  return HoloImage(
                                     'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                     fit: BoxFit.cover,
                                     filterQuality: FilterQuality.high,
@@ -756,7 +757,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               Widget buildThumbFallback() {
                                 if (track.thumbnailUrl.isNotEmpty &&
                                     track.thumbnailUrl != art) {
-                                  return Image.network(
+                                  return HoloImage(
                                     track.thumbnailUrl,
                                     fit: BoxFit.cover,
                                     filterQuality: FilterQuality.high,
@@ -768,7 +769,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               }
 
                               if (art != null && art.isNotEmpty) {
-                                return Image.network(
+                                return HoloImage(
                                   art,
                                   fit: BoxFit.cover,
                                   filterQuality: FilterQuality.high,
@@ -913,7 +914,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             child: mix.coverUrl.isNotEmpty
-                                ? Image.network(
+                                ? HoloImage(
                                     mix.coverUrl,
                                     fit: BoxFit.cover,
                                     errorBuilder: (_, __, ___) => const Icon(
@@ -1218,7 +1219,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     Widget buildYtFallback() {
                       if (vid != null && vid.length == 11) {
-                        return Image.network(
+                        return HoloImage(
                           'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => placeholder(),
@@ -1229,7 +1230,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     Widget buildThumbFallback() {
                       if (validThumb && rawThumb != art) {
-                        return Image.network(
+                        return HoloImage(
                           rawThumb,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => buildYtFallback(),
@@ -1239,7 +1240,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
 
                     if (art != null && art.isNotEmpty) {
-                      return Image.network(
+                      return HoloImage(
                         art,
                         fit: BoxFit.cover,
                         errorBuilder: (_, __, ___) => buildThumbFallback(),

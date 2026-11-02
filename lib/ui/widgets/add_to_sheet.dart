@@ -1,3 +1,4 @@
+import 'holo_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -420,7 +421,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
 
                             Widget buildYtFallback() {
                               if (vid.length == 11) {
-                                return Image.network(
+                                return HoloImage(
                                   'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => placeholder(),
@@ -430,13 +431,13 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                             }
 
                             if (highRes.isNotEmpty) {
-                              return Image.network(
+                              return HoloImage(
                                 highRes,
                                 fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) {
                                   if (widget.track.thumbnailUrl.isNotEmpty &&
                                       widget.track.thumbnailUrl != highRes) {
-                                    return Image.network(
+                                    return HoloImage(
                                       widget.track.thumbnailUrl,
                                       fit: BoxFit.cover,
                                       errorBuilder: (_, __, ___) => buildYtFallback(),
@@ -874,7 +875,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                                         : const Color(0xFFE2E6EF),
                                     child: playlist.coverUrl != null &&
                                             playlist.coverUrl!.isNotEmpty
-                                        ? Image.network(
+                                        ? HoloImage(
                                             playlist.coverUrl!,
                                             fit: BoxFit.cover,
                                             errorBuilder: (_, __, ___) =>

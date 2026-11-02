@@ -1,3 +1,4 @@
+import '../widgets/holo_image.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -305,7 +306,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                         child: InteractiveViewer(
                           minScale: 1.0,
                           maxScale: 4.0,
-                          child: Image.network(
+                          child: HoloImage(
                             imgUrl,
                             fit: BoxFit.contain, // Shows entire content uncut
                             filterQuality: FilterQuality.high,
@@ -320,7 +321,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                             errorBuilder: (_, __, ___) {
                               final vid = track.youtubeVideoId ?? track.id;
                               if (vid.length == 11) {
-                                return Image.network(
+                                return HoloImage(
                                   'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                   fit: BoxFit.contain,
                                   errorBuilder: (_, __, ___) => const Center(
@@ -634,7 +635,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
                                 Widget buildYtFallback() {
                                   if (vid.length == 11) {
-                                    return Image.network(
+                                    return HoloImage(
                                       'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
@@ -648,7 +649,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 Widget buildThumbFallback() {
                                   if (track.thumbnailUrl.isNotEmpty &&
                                       track.thumbnailUrl != art) {
-                                    return Image.network(
+                                    return HoloImage(
                                       track.thumbnailUrl,
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
@@ -660,7 +661,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 }
 
                                 if (art != null && art.isNotEmpty) {
-                                  return Image.network(
+                                  return HoloImage(
                                     art,
                                     fit: BoxFit.cover,
                                     filterQuality: FilterQuality.high,
@@ -1463,7 +1464,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
                                 Widget buildYtFallback() {
                                   if (vid.length == 11) {
-                                    return Image.network(
+                                    return HoloImage(
                                       'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
@@ -1477,7 +1478,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 Widget buildThumbFallback() {
                                   if (track.thumbnailUrl.isNotEmpty &&
                                       track.thumbnailUrl != art) {
-                                    return Image.network(
+                                    return HoloImage(
                                       track.thumbnailUrl,
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
@@ -1489,7 +1490,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 }
 
                                 if (art != null && art.isNotEmpty) {
-                                  return Image.network(
+                                  return HoloImage(
                                     art,
                                     fit: BoxFit.cover,
                                     filterQuality: FilterQuality.high,
