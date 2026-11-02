@@ -109,6 +109,7 @@ class TrendingTrack {
       youtubeVideoId: youtubeVideoId,
       audioSource: audioSource ?? 'youtube',
       isLossless: false,
+      extraData: const {'itemType': 'song'},
     );
   }
 }

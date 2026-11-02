@@ -9,9 +9,12 @@ class YouTubeMusicService {
       'https://music.youtube.com/youtubei/v1/search';
   static const String _innertubeNextUrl =
       'https://music.youtube.com/youtubei/v1/next';
+  static const String _ytWebSearchUrl =
+      'https://www.youtube.com/youtubei/v1/search?prettyPrint=false';
   static const String _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+  /// YouTube Music WEB_REMIX parameter that strictly filters search results to "Songs"
   static const String _songsParam = 'EgWKAQIIAWoOEAQQAxAFEAkQEBAKEBU%3D';
 
   static Map<String, String> get _requestHeaders => {
@@ -23,10 +26,221 @@ class YouTubeMusicService {
         },
       };
 
-  /// Searches YouTube Music for songs matching the query
+  static const Set<String> _titleStopwords = {
+    'no', 'oh', 'to', 'in', 'on', 'at', 'of', 'me', 'my', 'is', 'it',
+    'de', 'na', 'ga', 'ni', 'wa', 'ha', 'a', 'an', 'the',
+  };
+
+  static const List<String> _badDerivativePhrases = [
+    '歌っちゃ王', '原曲歌手', '原曲キー', 'キー上げ', 'キー下げ',
+    'ガイドメロ', 'ガイドなし', 'ガイド音', 'ガイドボーカル',
+    'カラオケ', 'karaoke',
+    'off vocal', 'offvocal', 'off-vocal', 'without vocal', 'no vocal',
+    'backing track', 'minus one',
+    '弾いてみた', '歌ってみた', '演奏してみた', '叩いてみた', '弾いてみ', '歌ってみ',
+    'bass cover', 'guitar cover', 'drum cover', 'piano cover', 'vocal cover',
+    'play along', 'playalong', 'tutorial', 'how to play', 'lesson', 'fingerstyle',
+    'amateur cover', 'fan cover',
+    'mashup', 'mash-up', 'mash up', 'bootleg',
+    'slowed', 'reverb', 'sped up', 'speed up', 'nightcore',
+    'instrumental', 'tribute', 'parody',
+    'cover by', 'covered by', '(cover)', '[cover]', ' cover',
+    'dj ', 'dj.', 'dj-', 'dj_', 'remix', 'rmx', 'koplo', 'hipdut', 'jedag jedug', 'funkot',
+    'tiktok', 'tik tok',
+    'lirik', 'lyric video', 'lyrics video', 'lirik lagu', 'music box', 'オルゴール', 'orgel',
+    'originally performed by', 'original performer', 'megamix', 'kompilasi',
+  ];
+
+  /// Helper to clean title of parenthetical notes like (w/ Ade Govinda), [Cover], etc.
+  /// Mirrors nadanada's `clean_title_for_matching`.
+  static String cleanTitleForMatching(String title) {
+    final buf = StringBuffer();
+    int depth = 0;
+    for (final rune in title.runes) {
+      final c = String.fromCharCode(rune);
+      if (c == '(' || c == '[' || c == '（' || c == '【') {
+        depth++;
+      } else if (c == ')' || c == ']' || c == '）' || c == '】') {
+        if (depth > 0) depth--;
+      } else if (depth == 0) {
+        if (RegExp(r'[a-zA-Z0-9\u00C0-\u024F\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]')
+            .hasMatch(c)) {
+          buf.write(c);
+        } else {
+          buf.write(' ');
+        }
+      }
+    }
+    return buf.toString().toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+  static bool _isKaraokeOrDerivative(String title, String channel, String rawQuery) {
+    final lowerTitle = title.toLowerCase();
+    final lowerChannel = channel.toLowerCase();
+    final lowerQuery = rawQuery.toLowerCase();
+
+    if (lowerQuery.contains('karaoke') ||
+        lowerQuery.contains('カラオケ') ||
+        lowerQuery.contains('instrumental')) {
+      return false;
+    }
+
+    if (lowerChannel.contains('歌っちゃ王') ||
+        lowerChannel.contains('karafun') ||
+        lowerChannel.contains('sing king') ||
+        lowerChannel.contains('生音風カラオケ') ||
+        lowerChannel.contains('カラオケ')) {
+      return true;
+    }
+
+    for (final bad in _badDerivativePhrases) {
+      if ((lowerTitle.contains(bad) || lowerChannel.contains(bad)) &&
+          !lowerQuery.contains(bad)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _artistMatchesQuery(String channel, String title, String rawQuery) {
+    final lowerCh = channel.toLowerCase();
+    final lowerTitle = title.toLowerCase();
+    final lowerQuery = rawQuery.toLowerCase();
+
+    final cleanCh = lowerCh
+        .replaceAll('- topic', '')
+        .replaceAll('vevo', '')
+        .replaceAll('official', '')
+        .replaceAll('channel', '')
+        .trim();
+
+    final chWords = cleanCh
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 3 && !_titleStopwords.contains(w))
+        .toList();
+
+    for (final sep in [' - ', ' ~ ', ' – ', ' — ']) {
+      if (lowerQuery.contains(sep)) {
+        final parts = lowerQuery.split(sep);
+        final p1 = parts.first.trim();
+        final p2 = parts.sublist(1).join(sep).trim();
+        if (p1.isNotEmpty &&
+            (cleanCh == p1 || cleanCh.contains(p1) || p1.contains(cleanCh))) {
+          return true;
+        }
+        if (p2.isNotEmpty &&
+            (cleanCh == p2 || cleanCh.contains(p2) || p2.contains(cleanCh))) {
+          return true;
+        }
+      }
+    }
+
+    final queryClean = cleanTitleForMatching(rawQuery);
+    final qWords = queryClean
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length >= 3 && !_titleStopwords.contains(w))
+        .toList();
+    if (chWords.isNotEmpty && chWords.any((cw) => qWords.contains(cw))) {
+      return true;
+    }
+
+    if (lowerTitle.contains(' - ')) {
+      final prefix = lowerTitle.split(' - ').first.trim();
+      final prefixWords = prefix
+          .split(RegExp(r'\s+'))
+          .where((w) => w.length >= 3 && !_titleStopwords.contains(w))
+          .toList();
+      if (prefixWords.isNotEmpty &&
+          prefixWords.every((pw) => lowerQuery.contains(pw))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /// Mirrors nadanada's `score_search_candidate` relevance scoring (lower is better).
+  static int scoreSearchCandidate(
+      Track track, List<String> queryWords, String rawQuery) {
+    final cleanT = cleanTitleForMatching(track.title);
+    final channelLower = track.artist.toLowerCase();
+    final lowerRawTitle = track.title.toLowerCase();
+
+    int matchedTitleWords = 0;
+    int matchedSignificantTitleWords = 0;
+    int matchedChannelWords = 0;
+
+    final chWords = channelLower
+        .split(RegExp(r'\s+'))
+        .where((cw) => cw.length >= 3 && !_titleStopwords.contains(cw))
+        .toList();
+
+    for (final w in queryWords) {
+      final inClean = cleanT.contains(w);
+      final inRaw = lowerRawTitle.contains(w);
+      if (inClean || inRaw) {
+        matchedTitleWords++;
+        if (!_titleStopwords.contains(w) && w.runes.length >= 3) {
+          matchedSignificantTitleWords++;
+        }
+      }
+      if (!_titleStopwords.contains(w) && w.runes.length >= 3) {
+        if (chWords.any((cw) => cw == w || cw.contains(w) || w.contains(cw))) {
+          matchedChannelWords++;
+        }
+      }
+    }
+
+    final isSong = track.extraData?['itemType'] == 'song';
+    final artistMatched =
+        _artistMatchesQuery(track.artist, track.title, rawQuery) ||
+            matchedChannelWords > 0;
+
+    final hasQuerySignificant = queryWords
+        .any((w) => !_titleStopwords.contains(w) && w.runes.length >= 3);
+    final titleMatched = hasQuerySignificant
+        ? matchedSignificantTitleWords > 0
+        : matchedTitleWords > 0;
+
+    int score = 0;
+    final missing =
+        (queryWords.length - (matchedTitleWords + matchedChannelWords))
+            .clamp(0, queryWords.length);
+    score += missing * 40;
+
+    if (!titleMatched) {
+      score += !artistMatched ? 500 : 50;
+    }
+    if (!artistMatched) {
+      score += 500;
+    }
+
+    if (track.durationSeconds > 600) {
+      score += 1500;
+    }
+
+    if (_isKaraokeOrDerivative(track.title, track.artist, rawQuery)) {
+      score += 1000;
+    }
+
+    if (isSong && titleMatched && artistMatched) {
+      score -= 150;
+    } else if (!isSong) {
+      score += 50;
+    }
+
+    return score;
+  }
+
+  /// Searches YouTube Music strictly for "song" / "- Topic" tracks matching [query],
+  /// mirroring nadanada's `search_youtube(query, Some("song"))`.
   Future<List<Track>> searchSongs(String query) async {
-    final cleanQuery = query.trim();
-    if (cleanQuery.isEmpty) return [];
+    final cleanQuery = cleanTitleForMatching(query);
+    final effectiveQuery =
+        ((query.contains('(') || query.contains('[')) && cleanQuery.isNotEmpty)
+            ? cleanQuery
+            : query.trim();
+    if (effectiveQuery.isEmpty) return [];
 
     final payload = {
       'context': {
@@ -37,7 +251,7 @@ class YouTubeMusicService {
           'gl': 'US',
         }
       },
-      'query': cleanQuery,
+      'query': effectiveQuery,
       'params': _songsParam,
     };
 
@@ -50,13 +264,100 @@ class YouTubeMusicService {
           )
           .timeout(const Duration(seconds: 7));
 
-      if (res.statusCode != 200) {
-        return [];
+      if (res.statusCode == 200) {
+        final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+        final data = jsonDecode(decoded);
+        final results = _parseYtmResponse(data);
+        if (results.isNotEmpty) {
+          final queryWords = cleanQuery
+              .split(RegExp(r'\s+'))
+              .where((w) => w.isNotEmpty)
+              .toList();
+          if (queryWords.length >= 2) {
+            results.sort((a, b) => scoreSearchCandidate(a, queryWords, query)
+                .compareTo(scoreSearchCandidate(b, queryWords, query)));
+          }
+          return results;
+        }
       }
+    } catch (_) {}
 
+    // Fallback: Search regular YouTube with "<effectiveQuery> topic" (nadanada fallback)
+    return _searchTopicFallback(effectiveQuery);
+  }
+
+  /// Fallback search appending " topic" to return "- Topic" song tracks from YouTube
+  Future<List<Track>> _searchTopicFallback(String effectiveQuery) async {
+    final topicQuery = '$effectiveQuery topic';
+    try {
+      final res = await http
+          .post(
+            Uri.parse(_ytWebSearchUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'query': topicQuery,
+              'context': {
+                'client': {
+                  'clientName': 'WEB',
+                  'clientVersion': '2.20250201.00.00',
+                  'hl': 'en',
+                  'gl': 'US',
+                }
+              },
+            }),
+          )
+          .timeout(const Duration(seconds: 6));
+
+      if (res.statusCode != 200) return [];
       final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
       final data = jsonDecode(decoded);
-      return _parseYtmResponse(data);
+      final List<Track> tracks = [];
+      final seen = <String>{};
+
+      final sections = data['contents']?['twoColumnSearchResultsRenderer']
+          ?['primaryContents']?['sectionListRenderer']?['contents'];
+      if (sections is List) {
+        for (final sec in sections) {
+          final contents = sec['itemSectionRenderer']?['contents'];
+          if (contents is List) {
+            for (final item in contents) {
+              final video = item['videoRenderer'];
+              if (video is Map) {
+                final vId = video['videoId']?.toString() ?? '';
+                final title =
+                    video['title']?['runs']?[0]?['text']?.toString() ?? '';
+                final rawChannel =
+                    video['ownerText']?['runs']?[0]?['text']?.toString() ?? '';
+                final cleanArtist = rawChannel
+                    .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+                    .trim();
+                final durStr =
+                    video['lengthText']?['simpleText']?.toString() ?? '';
+                final thumbs = video['thumbnail']?['thumbnails'] as List?;
+                final thumb = (thumbs != null && thumbs.isNotEmpty)
+                    ? thumbs.last['url']?.toString() ?? ''
+                    : '';
+
+                if (vId.isNotEmpty && title.isNotEmpty && seen.add(vId)) {
+                  tracks.add(Track(
+                    id: vId,
+                    title: TextEncodingUtils.cleanMojibake(title),
+                    artist: TextEncodingUtils.cleanMojibake(
+                        cleanArtist.isNotEmpty ? cleanArtist : rawChannel),
+                    thumbnailUrl: Track.toHighResUrl(thumb),
+                    durationSeconds: _parseDuration(durStr),
+                    youtubeVideoId: vId,
+                    audioSource: 'youtube',
+                    isLossless: false,
+                    extraData: const {'itemType': 'song'},
+                  ));
+                }
+              }
+            }
+          }
+        }
+      }
+      return tracks;
     } catch (_) {
       return [];
     }
@@ -107,7 +408,11 @@ class YouTubeMusicService {
             if (panelItem != null) {
               final vId = panelItem['videoId']?.toString() ?? '';
               final title = panelItem['title']?['runs']?[0]?['text']?.toString() ?? '';
-              final artist = panelItem['longBylineText']?['runs']?[0]?['text']?.toString() ?? '';
+              final rawArtist =
+                  panelItem['longBylineText']?['runs']?[0]?['text']?.toString() ?? '';
+              final artist = rawArtist
+                  .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+                  .trim();
               final durStr = panelItem['lengthText']?['runs']?[0]?['text']?.toString() ?? '';
               final thumbs = panelItem['thumbnail']?['thumbnails'] as List?;
               final thumb = (thumbs != null && thumbs.isNotEmpty)
@@ -165,6 +470,8 @@ class YouTubeMusicService {
     return tracks;
   }
 
+  /// Parses an item from YouTube Music's `musicResponsiveListItemRenderer` into a "song" Track,
+  /// mirroring nadanada's `parse_ytm_song_item`.
   Track? _parseListItem(Map<String, dynamic>? item) {
     if (item == null) return null;
 
@@ -172,23 +479,37 @@ class YouTubeMusicService {
       final videoId = item['playlistItemData']?['videoId'] ??
           item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
               ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
-              ?['watchEndpoint']?['videoId'];
+              ?['watchEndpoint']?['videoId'] ??
+          item['flexColumns']?[0]
+              ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']?[0]
+              ?['navigationEndpoint']?['watchEndpoint']?['videoId'];
 
       if (videoId == null || (videoId as String).isEmpty) return null;
 
       final flex0 = item['flexColumns']?[0]
-          ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'];
+              ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] ??
+          item['flexColumns']?[0]
+              ?['musicResponsiveListItemFlexColumnRenderer']?['title']?['runs'];
       String title = '';
       if (flex0 != null && flex0 is List && flex0.isNotEmpty) {
-        title = flex0[0]['text'] ?? '';
+        title = flex0[0]['text']?.toString() ?? '';
       }
       if (title.isEmpty) return null;
 
-      final flex1 = item['flexColumns']?[1]
-          ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'];
-      String artist = 'Unknown Artist';
+      // Check fixedColumns for explicit duration first (just like nadanada)
       int durationSecs = 0;
-      String itemType = 'song';
+      final fixed0 = item['fixedColumns']?[0]
+          ?['musicResponsiveListItemFixedColumnRenderer']?['text']?['runs'];
+      if (fixed0 != null && fixed0 is List && fixed0.isNotEmpty) {
+        final dStr = fixed0[0]['text']?.toString() ?? '';
+        durationSecs = _parseDuration(dStr);
+      }
+
+      final flex1 = item['flexColumns']?[1]
+              ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'] ??
+          item['flexColumns']?[1]
+              ?['musicResponsiveListItemFlexColumnRenderer']?['title']?['runs'];
+      String artist = 'Unknown Artist';
 
       if (flex1 != null && flex1 is List) {
         final List<String> texts = flex1
@@ -196,47 +517,36 @@ class YouTubeMusicService {
             .where((t) => t.isNotEmpty)
             .toList();
 
-        final full = texts.join();
-        final parts = full.split(' • ');
-        if (parts.isNotEmpty) {
-          int artistIdx = 0;
-          final first = parts[0].toLowerCase().trim();
-          if (first == 'song') {
-            itemType = 'song';
-            artistIdx = 1;
-          } else if (first == 'video') {
-            itemType = 'video';
-            artistIdx = 1;
-          } else if (first == 'single' || first == 'album' || first == 'ep') {
-            artistIdx = 1;
-          }
+        final fullMeta = texts.join();
+        final parts = fullMeta.split(' • ');
 
-          if (parts.length > artistIdx) {
-            artist = parts[artistIdx].trim();
-          }
-        }
-        if (parts.length > 1) {
+        if (durationSecs == 0 && parts.isNotEmpty) {
           final last = parts.last.trim();
-          durationSecs = _parseDuration(last);
+          if (last.contains(':')) {
+            durationSecs = _parseDuration(last);
+          }
+        }
+
+        if (parts.isNotEmpty) {
+          final first = parts.first.trim();
+          if (first.toLowerCase() == 'song' && parts.length > 1) {
+            artist = parts[1].trim();
+          } else {
+            artist = first;
+          }
         }
       }
 
-      // Check fixedColumns for explicit duration
-      final fixed0 = item['fixedColumns']?[0]
-          ?['musicResponsiveListItemFixedColumnRenderer']?['text']?['runs'];
-      if (fixed0 != null && fixed0 is List && fixed0.isNotEmpty) {
-        final dStr = fixed0[0]['text']?.toString() ?? '';
-        final dSecs = _parseDuration(dStr);
-        if (dSecs > 0) {
-          durationSecs = dSecs;
-        }
-      }
+      artist = artist
+          .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+          .trim();
 
       final thumbs = item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
           ?['thumbnails'];
       String thumbUrl = '';
       if (thumbs != null && thumbs is List && thumbs.isNotEmpty) {
-        thumbUrl = thumbs.last['url'] ?? '';
+        thumbUrl =
+            (thumbs.last['url'] ?? thumbs.first['url'])?.toString() ?? '';
       }
 
       return Track(
@@ -248,7 +558,7 @@ class YouTubeMusicService {
         youtubeVideoId: videoId,
         audioSource: 'youtube',
         isLossless: false,
-        extraData: {'itemType': itemType},
+        extraData: const {'itemType': 'song'},
       );
     } catch (_) {
       return null;
@@ -256,7 +566,8 @@ class YouTubeMusicService {
   }
 
   int _parseDuration(String timeStr) {
-    final parts = timeStr.split(':').map((s) => int.tryParse(s) ?? 0).toList();
+    final parts =
+        timeStr.trim().split(':').map((s) => int.tryParse(s) ?? 0).toList();
     if (parts.length == 2) {
       return parts[0] * 60 + parts[1];
     } else if (parts.length == 3) {

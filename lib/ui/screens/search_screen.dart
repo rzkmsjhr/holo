@@ -659,8 +659,21 @@ class _SearchScreenState extends State<SearchScreen> {
           ],
         ],
       ),
-      subtitle: Text(
-        track.artist,
+      subtitle: Text.rich(
+        TextSpan(
+          children: [
+            const TextSpan(
+              text: 'Song',
+              style: TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            TextSpan(
+              text: ' • ${track.artist}',
+            ),
+          ],
+        ),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
