@@ -76,6 +76,11 @@ class PlayerProvider extends ChangeNotifier {
   StreamSubscription? _eventSub;
   StreamSubscription? _connectivitySub;
 
+  // Candidate fallback recovery state
+  bool _isAttemptingCandidateFallback = false;
+  final Set<String> _failedCandidateIdsForTrack = {};
+  String? _failedTrackKey;
+
   // Getters
   Track? get currentTrack => _currentTrack;
   bool get isPlaying => _isPlaying;
@@ -255,18 +260,7 @@ class PlayerProvider extends ChangeNotifier {
     _eventSub = _audioPlayer.playbackEventStream.listen(
       (event) {},
       onError: (Object e, StackTrace st) {
-        if (!isOnline) {
-          _playbackError = 'Connection lost during playback. Tap to retry.';
-        } else {
-          final errStr = e.toString().toLowerCase();
-          if (errStr.contains('403') || errStr.contains('forbidden')) {
-            _playbackError = 'Stream expired or access restricted (403). Tap to retry.';
-          } else {
-            _playbackError = 'Playback issue: ${_formatErrorMessage(e)}. Tap to retry.';
-          }
-        }
-        _isBuffering = false;
-        notifyListeners();
+        _handlePlaybackFailure(e);
       },
     );
   }
@@ -719,6 +713,10 @@ class PlayerProvider extends ChangeNotifier {
 
   /// Condition 1: When a track is going to be played (at all states)
   Future<void> playTrack(Track track) async {
+    _isAttemptingCandidateFallback = false;
+    _failedCandidateIdsForTrack.clear();
+    _failedTrackKey = null;
+
     final sanitizedTrack = _sanitizeTrack(track);
     _currentTrack = sanitizedTrack;
     _addToRecentlyPlayed(sanitizedTrack);
@@ -858,30 +856,63 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
     try {
-      final audioSource = AudioSource.uri(
-        Uri.parse(url),
-        headers: {
-          'User-Agent':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Referer': 'https://music.youtube.com/',
-        },
-      );
-      await _audioPlayer.setAudioSource(audioSource);
+      await _audioPlayer.stop();
+      await _audioPlayer.setUrl(url);
       await _audioPlayer.setVolume(1.0);
       await _audioPlayer.play();
     } catch (e) {
-      Object lastError = e;
-      // 1. If this was a Hi-Fi FLAC stream that failed, downgrade to YouTube Audio
-      if (fallbackYtTrack != null && fallbackYtTrack.isLossless) {
-        final vId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
+      await _handlePlaybackFailure(e);
+    }
+  }
+
+  Future<void> _handlePlaybackFailure(Object error) async {
+    if (_isAttemptingCandidateFallback) return;
+
+    final track = _currentTrack;
+    if (track == null) {
+      _isBuffering = false;
+      notifyListeners();
+      return;
+    }
+
+    if (!isOnline) {
+      _isBuffering = false;
+      _playbackError = 'No internet connection. Reconnect to stream.';
+      notifyListeners();
+      return;
+    }
+
+    final trackKey = '${track.id}_${track.title}_${track.artist}'.toLowerCase();
+    if (_failedTrackKey != trackKey) {
+      _failedTrackKey = trackKey;
+      _failedCandidateIdsForTrack.clear();
+    }
+
+    final currentVid = (track.youtubeVideoId ?? track.id).trim();
+    if (currentVid.isNotEmpty &&
+        !currentVid.startsWith('track_') &&
+        !currentVid.startsWith('trending_')) {
+      _failedCandidateIdsForTrack.add(currentVid);
+    }
+
+    // 1. If current track was Hi-Fi FLAC that failed, downgrade to YouTube first
+    if (track.isLossless) {
+      _isAttemptingCandidateFallback = true;
+      _isBuffering = true;
+      _playbackError = null;
+      notifyListeners();
+
+      try {
         final ytRes = await _ytResolver.resolveStreamForTrack(
-          title: fallbackYtTrack.title,
-          artist: fallbackYtTrack.artist,
-          primaryVideoId: vId,
+          title: track.title,
+          artist: track.artist,
+          primaryVideoId: currentVid,
+          excludedVideoIds: _failedCandidateIdsForTrack,
         );
+
         if (ytRes.isSuccess && ytRes.url != null) {
-          final downgraded = fallbackYtTrack.copyWith(
-            youtubeVideoId: ytRes.videoId ?? vId,
+          final downgraded = track.copyWith(
+            youtubeVideoId: ytRes.videoId ?? currentVid,
             flacStreamUrl: ytRes.url,
             audioSource: 'youtube',
             isLossless: false,
@@ -891,34 +922,43 @@ class PlayerProvider extends ChangeNotifier {
           _updateTrackInQueue(downgraded);
           _updateRecentlyPlayed(downgraded);
           notifyListeners();
-          try {
-            final ytSource = AudioSource.uri(
-              Uri.parse(ytRes.url!),
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://music.youtube.com/',
-              },
-            );
-            await _audioPlayer.setAudioSource(ytSource);
-            await _audioPlayer.setVolume(1.0);
-            await _audioPlayer.play();
-            return;
-          } catch (e2) {
-            lastError = e2;
-          }
+
+          await _audioPlayer.stop();
+          await _audioPlayer.setUrl(ytRes.url!);
+          await _audioPlayer.setVolume(1.0);
+          await _audioPlayer.play();
+
+          _isAttemptingCandidateFallback = false;
+          _isBuffering = false;
+          _playbackError = null;
+          notifyListeners();
+          return;
         }
-      } else if (fallbackYtTrack != null && !fallbackYtTrack.isLossless) {
-        // 2. If YouTube stream itself failed to play (e.g. 403 or unplayable stream):
-        // Automatically search and fallback to alternative YouTube video candidate!
-        final failedId = fallbackYtTrack.youtubeVideoId ?? fallbackYtTrack.id;
+      } catch (_) {
+        // Fall through to YouTube candidate fallback
+      } finally {
+        _isAttemptingCandidateFallback = false;
+      }
+    }
+
+    // 2. Try alternative YouTube candidate streams (up to 4 candidates)
+    if (_failedCandidateIdsForTrack.length <= 4) {
+      _isAttemptingCandidateFallback = true;
+      _isBuffering = true;
+      _playbackError = null;
+      notifyListeners();
+
+      try {
         final altRes = await _ytResolver.resolveAlternativeStream(
-          title: fallbackYtTrack.title,
-          artist: fallbackYtTrack.artist,
-          failedVideoId: failedId,
+          title: track.title,
+          artist: track.artist,
+          excludedVideoIds: _failedCandidateIdsForTrack,
         );
-        if (altRes.isSuccess && altRes.url != null) {
-          final altTrack = fallbackYtTrack.copyWith(
+
+        if (altRes.isSuccess && altRes.url != null && altRes.videoId != null) {
+          _failedCandidateIdsForTrack.add(altRes.videoId!);
+
+          final altTrack = track.copyWith(
             youtubeVideoId: altRes.videoId,
             flacStreamUrl: altRes.url,
             audioSource: 'youtube',
@@ -929,67 +969,48 @@ class PlayerProvider extends ChangeNotifier {
           _updateTrackInQueue(altTrack);
           _updateRecentlyPlayed(altTrack);
           notifyListeners();
-          try {
-            final altSource = AudioSource.uri(
-              Uri.parse(altRes.url!),
-              headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': 'https://music.youtube.com/',
-              },
-            );
-            await _audioPlayer.setAudioSource(altSource);
-            await _audioPlayer.setVolume(1.0);
-            await _audioPlayer.play();
-            return;
-          } catch (e3) {
-            lastError = e3;
-          }
-        }
-      }
 
-      _playbackError = _formatPlaybackError(lastError, fallbackYtTrack ?? _currentTrack);
-      _isBuffering = false;
-      notifyListeners();
+          await _audioPlayer.stop();
+          await _audioPlayer.setUrl(altRes.url!);
+          await _audioPlayer.setVolume(1.0);
+          await _audioPlayer.play();
+
+          _isAttemptingCandidateFallback = false;
+          _isBuffering = false;
+          _playbackError = null;
+          notifyListeners();
+          return;
+        }
+      } catch (_) {
+        // Candidate attempt failed, fall through to error notification
+      } finally {
+        _isAttemptingCandidateFallback = false;
+      }
     }
+
+    // 3. All candidates exhausted: present a human-friendly error message
+    _isBuffering = false;
+    _playbackError = _formatPlaybackError(error, track);
+    notifyListeners();
   }
 
   String _formatPlaybackError(Object error, Track? track) {
     if (!isOnline) {
       return 'No internet connection. Reconnect to stream.';
     }
-    if (error is PlayerException) {
-      final code = error.code;
-      final msg = error.message;
-      if (code == 403 || (msg != null && msg.contains('403'))) {
-        return 'Stream access restricted (403). Tap retry to load alternative.';
-      }
-      if (msg != null && msg.isNotEmpty) {
-        return 'Playback error: $msg. Tap to retry.';
-      }
-    }
+    final trackName = track?.title ?? 'track';
     final errStr = error.toString().toLowerCase();
+
     if (errStr.contains('403') || errStr.contains('forbidden')) {
-      return 'Stream access forbidden (403). Tap retry for alternative.';
+      return 'Playback restricted for "$trackName". Tap to retry.';
     }
     if (errStr.contains('unsupported') || errStr.contains('decode')) {
       return 'Audio format unsupported by device. Tap to retry.';
     }
     if (errStr.contains('timeout')) {
-      return 'Audio loading timed out. Tap to retry.';
+      return 'Stream connection timed out for "$trackName". Tap to retry.';
     }
-    final clean = _formatErrorMessage(error);
-    final trackName = track?.title ?? 'track';
-    return 'Playback error for "$trackName" ($clean). Tap to retry.';
-  }
-
-  String _formatErrorMessage(Object raw) {
-    var text = raw.toString();
-    text = text.replaceAll(RegExp(r'^(?:Exception|PlatformException|PlayerException):\s*'), '');
-    if (text.length > 45) {
-      text = '${text.substring(0, 42)}...';
-    }
-    return text.isEmpty ? 'stream unavailable' : text;
+    return 'Unable to stream "$trackName". Tap to retry.';
   }
 
   void _updateTrackInQueue(Track updated) {
