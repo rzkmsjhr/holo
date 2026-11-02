@@ -45,9 +45,9 @@ class Track {
       highRes = highRes.replaceAll(RegExp(r'=w\d+-h\d+'), '=w1080-h1080');
       highRes = highRes.replaceAll(RegExp(r'=s\d+'), '=s1080');
     } else if (highRes.contains('ytimg.com')) {
-      // Only upgrade tiny default/mqdefault to guaranteed hqdefault (avoid maxresdefault which 404s on topic tracks)
+      // Safely ensure ytimg uses guaranteed hqdefault (avoid maxresdefault / sddefault which 404 on topic releases)
       highRes = highRes.replaceAll(
-          RegExp(r'/(?:default|mqdefault)\.jpg'),
+          RegExp(r'/(?:default|mqdefault|maxresdefault|sddefault)\.jpg(?:\?[^ ]*)?'),
           '/hqdefault.jpg');
     }
     return highRes;

@@ -502,10 +502,15 @@ class PlayerProvider extends ChangeNotifier {
 
     bool changed = false;
 
+    final isStudioArt = art.contains('mzstatic.com') || art.contains('dzcdn.net');
+
     if (_currentTrack != null &&
         _currentTrack!.artist.toLowerCase().trim() == cleanA &&
         _currentTrack!.title.toLowerCase().trim() == cleanT &&
-        _currentTrack!.thumbnailUrl.isEmpty) {
+        (_currentTrack!.thumbnailUrl.isEmpty ||
+            _currentTrack!.thumbnailUrl.contains('unsplash.com') ||
+            _currentTrack!.thumbnailUrl.contains('maxresdefault.jpg') ||
+            isStudioArt)) {
       _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
       changed = true;
     }
@@ -515,7 +520,10 @@ class PlayerProvider extends ChangeNotifier {
         final t = _recentlyPlayed![i];
         if (t.artist.toLowerCase().trim() == cleanA &&
             t.title.toLowerCase().trim() == cleanT &&
-            t.thumbnailUrl.isEmpty) {
+            (t.thumbnailUrl.isEmpty ||
+                t.thumbnailUrl.contains('unsplash.com') ||
+                t.thumbnailUrl.contains('maxresdefault.jpg') ||
+                isStudioArt)) {
           _recentlyPlayed![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
@@ -526,7 +534,10 @@ class PlayerProvider extends ChangeNotifier {
       final t = _queue[i];
       if (t.artist.toLowerCase().trim() == cleanA &&
           t.title.toLowerCase().trim() == cleanT &&
-          t.thumbnailUrl.isEmpty) {
+          (t.thumbnailUrl.isEmpty ||
+              t.thumbnailUrl.contains('unsplash.com') ||
+              t.thumbnailUrl.contains('maxresdefault.jpg') ||
+              isStudioArt)) {
         _queue[i] = t.copyWith(thumbnailUrl: art);
         changed = true;
       }

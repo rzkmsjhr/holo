@@ -247,11 +247,14 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
   void _showAlbumArtPopup(BuildContext context, Track track) {
     final player = context.read<PlayerProvider>();
-    final imgUrl = track.highResThumbnailUrl.isNotEmpty
-        ? track.highResThumbnailUrl
-        : (track.thumbnailUrl.isNotEmpty
-            ? track.thumbnailUrl
-            : (player.getArtwork(track.artist, track.title) ?? ''));
+    final cached = player.getArtwork(track.artist, track.title);
+    final imgUrl = (cached != null && cached.isNotEmpty)
+        ? cached
+        : (track.highResThumbnailUrl.isNotEmpty
+            ? track.highResThumbnailUrl
+            : (track.thumbnailUrl.isNotEmpty
+                ? track.thumbnailUrl
+                : 'https://i.ytimg.com/vi/${track.youtubeVideoId ?? track.id}/hqdefault.jpg'));
     if (imgUrl.isEmpty) return;
 
     showDialog(
@@ -314,10 +317,21 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 ),
                               );
                             },
-                            errorBuilder: (_, __, ___) => Image.network(
-                              track.thumbnailUrl,
-                              fit: BoxFit.contain,
-                            ),
+                            errorBuilder: (_, __, ___) {
+                              final vid = track.youtubeVideoId ?? track.id;
+                              if (vid.length == 11) {
+                                return Image.network(
+                                  'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Icon(Icons.album, size: 80, color: Colors.white70),
+                                  ),
+                                );
+                              }
+                              return const Center(
+                                child: Icon(Icons.album, size: 80, color: Colors.white70),
+                              );
+                            },
                           ),
                         ),
                       ),
@@ -593,38 +607,69 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                               ),
                               child: Builder(builder: (context) {
                                 final player = context.read<PlayerProvider>();
-                                final art = track.highResThumbnailUrl.isNotEmpty
-                                    ? track.highResThumbnailUrl
-                                    : (track.thumbnailUrl.isNotEmpty
-                                        ? track.thumbnailUrl
-                                        : player.getArtwork(track.artist, track.title));
+                                final cachedArt =
+                                    player.getArtwork(track.artist, track.title);
+                                final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                    ? cachedArt
+                                    : (track.highResThumbnailUrl.isNotEmpty
+                                        ? track.highResThumbnailUrl
+                                        : (track.thumbnailUrl.isNotEmpty
+                                            ? track.thumbnailUrl
+                                            : null));
 
-                                if (art == null || art.isEmpty) {
+                                if (cachedArt == null || cachedArt.isEmpty) {
                                   player.resolveArtworkFor(track.artist, track.title);
                                 }
 
-                                return art != null && art.isNotEmpty
-                                    ? Image.network(
-                                        art,
-                                        fit: BoxFit.cover,
-                                        filterQuality: FilterQuality.high,
-                                        errorBuilder: (_, __, ___) => Container(
-                                          color: AppColors.secondary,
-                                          child: const Icon(
-                                            Icons.album,
-                                            size: 80,
-                                            color: Colors.white,
-                                          ),
-                                        ),
-                                      )
-                                    : Container(
-                                        color: AppColors.secondary,
-                                        child: const Icon(
-                                          Icons.album,
-                                          size: 80,
-                                          color: Colors.white,
-                                        ),
-                                      );
+                                final vid = track.youtubeVideoId ?? track.id;
+
+                                Widget placeholderIcon() => Container(
+                                      color: AppColors.secondary,
+                                      child: const Icon(
+                                        Icons.album,
+                                        size: 80,
+                                        color: Colors.white,
+                                      ),
+                                    );
+
+                                Widget buildYtFallback() {
+                                  if (vid.length == 11) {
+                                    return Image.network(
+                                      'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                                      fit: BoxFit.cover,
+                                      filterQuality: FilterQuality.high,
+                                      errorBuilder: (_, __, ___) =>
+                                          placeholderIcon(),
+                                    );
+                                  }
+                                  return placeholderIcon();
+                                }
+
+                                Widget buildThumbFallback() {
+                                  if (track.thumbnailUrl.isNotEmpty &&
+                                      track.thumbnailUrl != art) {
+                                    return Image.network(
+                                      track.thumbnailUrl,
+                                      fit: BoxFit.cover,
+                                      filterQuality: FilterQuality.high,
+                                      errorBuilder: (_, __, ___) =>
+                                          buildYtFallback(),
+                                    );
+                                  }
+                                  return buildYtFallback();
+                                }
+
+                                if (art != null && art.isNotEmpty) {
+                                  return Image.network(
+                                    art,
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
+                                    errorBuilder: (_, __, ___) =>
+                                        buildThumbFallback(),
+                                  );
+                                }
+
+                                return buildThumbFallback();
                               }),
                             ),
                           ),
@@ -1397,22 +1442,64 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                               width: 42,
                               height: 42,
                               color: AppColors.secondary,
-                              child: track.thumbnailUrl.isNotEmpty
-                                  ? Image.network(
-                                      track.highResThumbnailUrl.isNotEmpty
-                                          ? track.highResThumbnailUrl
-                                          : track.thumbnailUrl,
+                              child: Builder(builder: (context) {
+                                final cachedArt =
+                                    player.getArtwork(track.artist, track.title);
+                                final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                    ? cachedArt
+                                    : (track.highResThumbnailUrl.isNotEmpty
+                                        ? track.highResThumbnailUrl
+                                        : (track.thumbnailUrl.isNotEmpty
+                                            ? track.thumbnailUrl
+                                            : null));
+
+                                final vid = track.youtubeVideoId ?? track.id;
+
+                                Widget placeholderIcon() => const Icon(
+                                      Icons.music_note,
+                                      color: Colors.white,
+                                      size: 20,
+                                    );
+
+                                Widget buildYtFallback() {
+                                  if (vid.length == 11) {
+                                    return Image.network(
+                                      'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
                                       filterQuality: FilterQuality.high,
                                       errorBuilder: (_, __, ___) =>
-                                          const Icon(
-                                        Icons.music_note,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    )
-                                  : const Icon(Icons.music_note,
-                                      color: Colors.white, size: 20),
+                                          placeholderIcon(),
+                                    );
+                                  }
+                                  return placeholderIcon();
+                                }
+
+                                Widget buildThumbFallback() {
+                                  if (track.thumbnailUrl.isNotEmpty &&
+                                      track.thumbnailUrl != art) {
+                                    return Image.network(
+                                      track.thumbnailUrl,
+                                      fit: BoxFit.cover,
+                                      filterQuality: FilterQuality.high,
+                                      errorBuilder: (_, __, ___) =>
+                                          buildYtFallback(),
+                                    );
+                                  }
+                                  return buildYtFallback();
+                                }
+
+                                if (art != null && art.isNotEmpty) {
+                                  return Image.network(
+                                    art,
+                                    fit: BoxFit.cover,
+                                    filterQuality: FilterQuality.high,
+                                    errorBuilder: (_, __, ___) =>
+                                        buildThumbFallback(),
+                                  );
+                                }
+
+                                return buildThumbFallback();
+                              }),
                             ),
                           ),
                           const SizedBox(width: 10),

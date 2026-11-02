@@ -178,22 +178,63 @@ class QueueScreen extends StatelessWidget {
                                 width: 48,
                                 height: 48,
                                 color: AppColors.secondary,
-                                child: currentTrack.thumbnailUrl.isNotEmpty
-                                    ? Image.network(
-                                        currentTrack
-                                                .highResThumbnailUrl.isNotEmpty
-                                            ? currentTrack.highResThumbnailUrl
-                                            : currentTrack.thumbnailUrl,
+                                child: Builder(builder: (context) {
+                                  final cachedArt = player.getArtwork(
+                                      currentTrack.artist, currentTrack.title);
+                                  final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                      ? cachedArt
+                                      : (currentTrack.highResThumbnailUrl.isNotEmpty
+                                          ? currentTrack.highResThumbnailUrl
+                                          : (currentTrack.thumbnailUrl.isNotEmpty
+                                              ? currentTrack.thumbnailUrl
+                                              : null));
+
+                                  final vid = currentTrack.youtubeVideoId ?? currentTrack.id;
+
+                                  Widget placeholder() => const Icon(
+                                        Icons.music_note,
+                                        color: Colors.white,
+                                      );
+
+                                  Widget buildYtFallback() {
+                                    if (vid.length == 11) {
+                                      return Image.network(
+                                        'https://i.ytimg.com/vi//hqdefault.jpg',
                                         fit: BoxFit.cover,
                                         filterQuality: FilterQuality.high,
                                         errorBuilder: (_, __, ___) =>
-                                            const Icon(
-                                          Icons.music_note,
-                                          color: Colors.white,
-                                        ),
-                                      )
-                                    : const Icon(Icons.music_note,
-                                        color: Colors.white),
+                                            placeholder(),
+                                      );
+                                    }
+                                    return placeholder();
+                                  }
+
+                                  Widget buildThumbFallback() {
+                                    if (currentTrack.thumbnailUrl.isNotEmpty &&
+                                        currentTrack.thumbnailUrl != art) {
+                                      return Image.network(
+                                        currentTrack.thumbnailUrl,
+                                        fit: BoxFit.cover,
+                                        filterQuality: FilterQuality.high,
+                                        errorBuilder: (_, __, ___) =>
+                                            buildYtFallback(),
+                                      );
+                                    }
+                                    return buildYtFallback();
+                                  }
+
+                                  if (art != null && art.isNotEmpty) {
+                                    return Image.network(
+                                      art,
+                                      fit: BoxFit.cover,
+                                      filterQuality: FilterQuality.high,
+                                      errorBuilder: (_, __, ___) =>
+                                          buildThumbFallback(),
+                                    );
+                                  }
+
+                                  return buildThumbFallback();
+                                }),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -366,23 +407,64 @@ class QueueScreen extends StatelessWidget {
                                       width: 42,
                                       height: 42,
                                       color: AppColors.secondary,
-                                      child: track.thumbnailUrl.isNotEmpty
-                                          ? Image.network(
-                                              track
-                                                      .highResThumbnailUrl
-                                                      .isNotEmpty
-                                                  ? track.highResThumbnailUrl
-                                                  : track.thumbnailUrl,
+                                      child: Builder(builder: (context) {
+                                        final cachedArt = player.getArtwork(
+                                            track.artist, track.title);
+                                        final art = (cachedArt != null && cachedArt.isNotEmpty)
+                                            ? cachedArt
+                                            : (track.highResThumbnailUrl.isNotEmpty
+                                                ? track.highResThumbnailUrl
+                                                : (track.thumbnailUrl.isNotEmpty
+                                                    ? track.thumbnailUrl
+                                                    : null));
+
+                                        final vid = track.youtubeVideoId ?? track.id;
+
+                                        Widget placeholder() => const Icon(
+                                              Icons.music_note,
+                                              color: Colors.white,
+                                              size: 20,
+                                            );
+
+                                        Widget buildYtFallback() {
+                                          if (vid.length == 11) {
+                                            return Image.network(
+                                              'https://i.ytimg.com/vi//hqdefault.jpg',
                                               fit: BoxFit.cover,
-                                              filterQuality:
-                                                  FilterQuality.high,
+                                              filterQuality: FilterQuality.high,
                                               errorBuilder: (_, __, ___) =>
-                                                  const Icon(Icons.music_note,
-                                                      color: Colors.white,
-                                                      size: 20),
-                                            )
-                                          : const Icon(Icons.music_note,
-                                              color: Colors.white, size: 20),
+                                                  placeholder(),
+                                            );
+                                          }
+                                          return placeholder();
+                                        }
+
+                                        Widget buildThumbFallback() {
+                                          if (track.thumbnailUrl.isNotEmpty &&
+                                              track.thumbnailUrl != art) {
+                                            return Image.network(
+                                              track.thumbnailUrl,
+                                              fit: BoxFit.cover,
+                                              filterQuality: FilterQuality.high,
+                                              errorBuilder: (_, __, ___) =>
+                                                  buildYtFallback(),
+                                            );
+                                          }
+                                          return buildYtFallback();
+                                        }
+
+                                        if (art != null && art.isNotEmpty) {
+                                          return Image.network(
+                                            art,
+                                            fit: BoxFit.cover,
+                                            filterQuality: FilterQuality.high,
+                                            errorBuilder: (_, __, ___) =>
+                                                buildThumbFallback(),
+                                          );
+                                        }
+
+                                        return buildThumbFallback();
+                                      }),
                                     ),
                                   ),
                                   const SizedBox(width: 12),

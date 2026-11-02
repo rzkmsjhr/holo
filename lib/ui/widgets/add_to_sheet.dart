@@ -406,23 +406,48 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                           color: widget.isDark
                               ? const Color(0xFF222736)
                               : const Color(0xFFE2E6EF),
-                          child: widget.track.thumbnailUrl.isNotEmpty
-                              ? Image.network(
-                                  widget.track.highResThumbnailUrl.isNotEmpty
-                                      ? widget.track.highResThumbnailUrl
-                                      : widget.track.thumbnailUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Icon(
-                                    Icons.music_note_rounded,
-                                    color: AppColors.primary,
-                                    size: 24,
-                                  ),
-                                )
-                              : const Icon(
+                          child: Builder(builder: (context) {
+                            final vid = widget.track.youtubeVideoId ?? widget.track.id;
+                            final highRes = widget.track.highResThumbnailUrl.isNotEmpty
+                                ? widget.track.highResThumbnailUrl
+                                : widget.track.thumbnailUrl;
+
+                            Widget placeholder() => const Icon(
                                   Icons.music_note_rounded,
                                   color: AppColors.primary,
                                   size: 24,
-                                ),
+                                );
+
+                            Widget buildYtFallback() {
+                              if (vid.length == 11) {
+                                return Image.network(
+                                  'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => placeholder(),
+                                );
+                              }
+                              return placeholder();
+                            }
+
+                            if (highRes.isNotEmpty) {
+                              return Image.network(
+                                highRes,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) {
+                                  if (widget.track.thumbnailUrl.isNotEmpty &&
+                                      widget.track.thumbnailUrl != highRes) {
+                                    return Image.network(
+                                      widget.track.thumbnailUrl,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => buildYtFallback(),
+                                    );
+                                  }
+                                  return buildYtFallback();
+                                },
+                              );
+                            }
+                            return placeholder();
+                          }),
                         ),
                       ),
                       const SizedBox(width: 12),
