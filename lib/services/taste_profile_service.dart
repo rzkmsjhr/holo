@@ -150,12 +150,11 @@ class TasteProfileService {
     );
     mixes.add(mix2);
 
-    // Mix 3: Chill Vibe Mix
-    final mix3 = await _createMoodMix(
+    // Mix 3: Chill Vibe Mix (anchored on genuine chill artists, never bot spam)
+    final mix3 = await _createChillLoungeMix(
       id: 'mix_chill',
       title: 'Chill Lounge',
       badge: 'CHILL',
-      query: 'chill lofi acoustic r&b',
       fallbackCatalog: fallbackCatalog,
       gradientColors: const [Color(0xFF11998E), Color(0xFF38EF7D)],
     );
@@ -246,21 +245,105 @@ class TasteProfileService {
     );
   }
 
-  Future<DailyMix> _createMoodMix({
+  Future<DailyMix> _createChillLoungeMix({
     required String id,
     required String title,
     required String badge,
-    required String query,
     required List<Track> fallbackCatalog,
     required List<Color> gradientColors,
   }) async {
-    List<Track> mixTracks = [];
-    try {
-      mixTracks = await _ytmService.searchSongs(query);
-    } catch (_) {}
+    // 1. Identify a high-quality chill anchor from user's taste or fallback catalog
+    Track? chillAnchor;
+    const chillKeywords = [
+      'bruno major',
+      'fkj',
+      'men i trust',
+      'norah jones',
+      'cigarettes after sex',
+      'laufey',
+      'daniel caesar',
+      'keshi',
+      'pamungkas',
+      'feby putri',
+      'niki',
+      'wave to earth',
+      'tom misch',
+      'leon bridges',
+      'mac demarco',
+      'honne',
+      'john mayer',
+      'boy pablo',
+      'phum viphurit',
+      'khruangbin',
+      'ardhito pramono',
+      'frank ocean',
+      'billie eilish',
+      'sza',
+      'kunto aji',
+      'bernadya',
+    ];
 
+    for (final track in fallbackCatalog) {
+      final cleanA = _cleanArtist(track.artist);
+      if (chillKeywords.any((kw) => cleanA.contains(kw))) {
+        chillAnchor = track;
+        break;
+      }
+    }
+
+    // Curated classic anchors if user history does not yet include chill artists
+    final curatedAnchors = [
+      const {'artist': 'Bruno Major', 'title': 'Nothing', 'id': 'kffacze53mg'},
+      const {'artist': 'Men I Trust', 'title': 'Show Me How', 'id': 'OZURY4m4Fq0'},
+      const {'artist': 'FKJ', 'title': 'Tadow', 'id': 'hC8CH0Z3L54'},
+      const {'artist': 'Cigarettes After Sex', 'title': 'Apocalypse', 'id': 'sElE_BfQ67s'},
+      const {'artist': 'Laufey', 'title': 'From The Start', 'id': 'lSD_L-x775s'},
+      const {'artist': 'Daniel Caesar', 'title': 'Best Part', 'id': 'hKgl5-lkT8U'},
+      const {'artist': 'Norah Jones', 'title': 'Don\'t Know Why', 'id': 'tO4dxvguQDk'},
+    ];
+
+    List<Track> mixTracks = [];
+
+    // Strategy 1: YouTube Music radio algorithm via getRelatedTracks on anchor
+    if (chillAnchor != null) {
+      final anchorId = chillAnchor.youtubeVideoId ?? chillAnchor.id;
+      if (anchorId.isNotEmpty) {
+        try {
+          final related = await _ytmService.getRelatedTracks(anchorId);
+          mixTracks = related.where((t) => !isSpamOrBotTrack(t)).toList();
+        } catch (_) {}
+      }
+    }
+
+    // Strategy 2: Curated anchor radio rotation if no anchor or too few tracks
+    if (mixTracks.length < 5) {
+      final curated = curatedAnchors[DateTime.now().day % curatedAnchors.length];
+      try {
+        final related = await _ytmService.getRelatedTracks(curated['id']!);
+        final filtered = related.where((t) => !isSpamOrBotTrack(t)).toList();
+        if (filtered.isNotEmpty) {
+          mixTracks = filtered;
+        }
+      } catch (_) {}
+    }
+
+    // Strategy 3: Targeted search for renowned chill artists instead of generic search
+    if (mixTracks.length < 5) {
+      try {
+        final res = await _ytmService.searchSongs('Bruno Major FKJ Men I Trust');
+        final filtered = res.where((t) => !isSpamOrBotTrack(t)).toList();
+        if (filtered.isNotEmpty) {
+          mixTracks = filtered;
+        }
+      } catch (_) {}
+    }
+
+    // Strategy 4: Fallback to non-spam catalog tracks or verified starter chill tracks
     if (mixTracks.isEmpty) {
-      mixTracks = List.from(fallbackCatalog);
+      mixTracks = fallbackCatalog.where((t) => !isSpamOrBotTrack(t)).toList();
+      if (mixTracks.isEmpty) {
+        mixTracks = _buildStarterChillTracks();
+      }
     }
 
     final artistsInMix = <String>{};
@@ -274,7 +357,7 @@ class TasteProfileService {
 
     final subtitle = artistsInMix.isNotEmpty
         ? '${artistsInMix.join(", ")}, and more'
-        : 'Mellow tracks to unwind';
+        : 'Mellow grooves & relaxing acoustic';
 
     final cover = mixTracks.isNotEmpty
         ? (mixTracks.first.highResThumbnailUrl.isNotEmpty
@@ -295,6 +378,147 @@ class TasteProfileService {
       gradientColors: gradientColors,
       tracks: enhancedTracks,
     );
+  }
+
+  /// Checks whether a track originates from an algorithmic SEO bot channel,
+  /// relaxation/sleep spam, white noise, or loop sound generator.
+  static bool isSpamOrBotTrack(Track track) {
+    final title = track.title.toLowerCase();
+    final artist = track.artist.toLowerCase();
+
+    const spamTerms = [
+      'lo-fi',
+      'lofi',
+      'chillhop',
+      'beats to',
+      'relaxing',
+      'relaxation',
+      'sleep music',
+      'sleep sounds',
+      'nature sounds',
+      'rain sounds',
+      'white noise',
+      'study music',
+      'study beats',
+      'ambient sound',
+      'sound effect',
+      'sound effects',
+      'bgm',
+      'meditation',
+      'binaural',
+      'frequency',
+      'vibrations of',
+      'healing music',
+      'zen music',
+      'asmr',
+      'cafe music',
+      'coffee shop sounds',
+      '1 hour',
+      '10 hours',
+      'deep sleep',
+      'relaxing guitar',
+      'relaxing piano',
+      'smooth lo-fi',
+    ];
+
+    for (final term in spamTerms) {
+      if (title.contains(term) || artist.contains(term)) {
+        return true;
+      }
+    }
+
+    // Artist naming patterns typical of spam channels
+    if (artist.endsWith(' lofi') ||
+        artist.startsWith('lofi ') ||
+        artist.endsWith(' beats') ||
+        artist.startsWith('beats ') ||
+        artist.contains('lo-fi') ||
+        artist.contains('records &') ||
+        artist.contains('& records') ||
+        artist.contains('relaxing radio') ||
+        artist.contains('vibe records') ||
+        artist.contains('relaxing r')) {
+      return true;
+    }
+
+    return false;
+  }
+
+  static List<Track> _buildStarterChillTracks() {
+    return [
+      Track(
+        id: 'bruno_major_nothing',
+        title: 'Nothing',
+        artist: 'Bruno Major',
+        album: 'To As Good As It Gets',
+        durationSeconds: 162,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/44/27/c2/4427c244-884d-2a1c-5bb5-3ef3d0bb2be7/194491763188.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'men_i_trust_show_me_how',
+        title: 'Show Me How',
+        artist: 'Men I Trust',
+        album: 'Oncle Jazz',
+        durationSeconds: 215,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music115/v4/3d/8c/fb/3d8cfba3-5591-ba47-160a-a82f3484f227/cover.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'fkj_masego_tadow',
+        title: 'Tadow',
+        artist: 'Masego & FKJ',
+        album: 'Lady Lady',
+        durationSeconds: 301,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music118/v4/7c/4f/95/7c4f958f-2a32-15f1-3316-c3f2d250c663/18UMGIM52317.rgb.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'cigarettes_after_sex_apocalypse',
+        title: 'Apocalypse',
+        artist: 'Cigarettes After Sex',
+        album: 'Cigarettes After Sex',
+        durationSeconds: 290,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/d5/43/e8/d543e8bb-76f5-ef85-4ae2-bcde64feee97/cover.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'laufey_from_the_start',
+        title: 'From The Start',
+        artist: 'Laufey',
+        album: 'Bewitched',
+        durationSeconds: 169,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/fa/ec/7b/faec7bd4-315c-fb82-9694-82548cb45e99/197188711411.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'daniel_caesar_best_part',
+        title: 'Best Part',
+        artist: 'Daniel Caesar ft. H.E.R.',
+        album: 'Freudian',
+        durationSeconds: 210,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/6c/49/7f/6c497fb2-c11c-d760-4648-52c6f140df95/cover.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'norah_jones_dont_know_why',
+        title: "Don't Know Why",
+        artist: 'Norah Jones',
+        album: 'Come Away With Me',
+        durationSeconds: 185,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/b9/e7/76/b9e776ea-86ad-953b-e3c3-6e6a17b075e8/00602537021703.rgb.jpg/600x600bb.jpg',
+      ),
+      Track(
+        id: 'pamungkas_to_the_bone',
+        title: 'To the Bone',
+        artist: 'Pamungkas',
+        album: 'Flying Solo',
+        durationSeconds: 345,
+        thumbnailUrl:
+            'https://is1-ssl.mzstatic.com/image/thumb/Music124/v4/55/b1/74/55b17409-5b72-f67b-2321-df621c17621c/cover.jpg/600x600bb.jpg',
+      ),
+    ];
   }
 
   Future<DailyMix> _createHiFiMix({
@@ -335,6 +559,12 @@ class TasteProfileService {
     final mix1Tracks = enhancedCatalog.take(4).toList();
     final mix2Tracks = enhancedCatalog.reversed.take(4).toList();
 
+    final starterChill = _buildStarterChillTracks();
+    final cleanChillCatalog =
+        enhancedCatalog.where((t) => !isSpamOrBotTrack(t)).toList();
+    final chillTracks =
+        cleanChillCatalog.isNotEmpty ? cleanChillCatalog : starterChill;
+
     return [
       DailyMix(
         id: 'starter_1',
@@ -359,9 +589,10 @@ class TasteProfileService {
         title: 'Chill Lounge',
         subtitle: 'Mellow grooves & relaxing acoustic',
         badge: 'CHILL',
-        coverUrl: enhancedCatalog.length > 2 ? enhancedCatalog[2].highResThumbnailUrl : '',
+        coverUrl:
+            chillTracks.isNotEmpty ? chillTracks.first.highResThumbnailUrl : '',
         gradientColors: const [Color(0xFF11998E), Color(0xFF38EF7D)],
-        tracks: enhancedCatalog,
+        tracks: chillTracks,
       ),
       DailyMix(
         id: 'starter_4',

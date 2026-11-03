@@ -151,6 +151,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _genres = GenreExploreService.personalizeGenres(
       topArtists: player.topArtists,
       recentTracks: player.recentlyPlayed,
+      likedTracks: player.likedTracks,
       currentGenres: _genres,
     );
 
@@ -465,8 +466,9 @@ class _SearchScreenState extends State<SearchScreen> {
 
     return GestureDetector(
       onTap: () {
-        _searchController.text = genre.title;
-        _performSearch(genre.searchQuery);
+        final target = candidate.artist;
+        _searchController.text = target;
+        _performSearch(target);
       },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
