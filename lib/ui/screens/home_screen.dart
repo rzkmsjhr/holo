@@ -711,7 +711,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     itemCount: mix.tracks.length,
                     itemBuilder: (context, idx) {
-                      final track = mix.tracks[idx];
+                      final rawTrack = mix.tracks[idx];
+                      final track = player.getCachedHiFi(rawTrack) ?? rawTrack;
                       return ListTile(
                         leading: ClipRRect(
                           borderRadius: BorderRadius.circular(8),

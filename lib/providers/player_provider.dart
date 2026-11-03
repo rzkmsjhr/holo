@@ -787,12 +787,113 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  Track? getCachedHiFi(Track track) => _hifiMatcher.getCachedHiFi(track);
+
+  int _queueLoadGeneration = 0;
+
+  /// Unified Pre-Queue FLAC Resolution Gate
+  /// Ensures any track is verified and elevated to FLAC before being queued.
+  Future<Track> _resolveTrackForQueue(Track rawTrack) async {
+    var track = _sanitizeTrack(rawTrack);
+    if (track.isLossless &&
+        track.flacStreamUrl != null &&
+        track.flacStreamUrl!.isNotEmpty) {
+      return track;
+    }
+    if (_isHifiEnabled && HifiMatcher.isEligibleTrack(track)) {
+      final cached = _hifiMatcher.getCachedHiFi(track);
+      if (cached != null &&
+          cached.flacStreamUrl != null &&
+          cached.flacStreamUrl!.isNotEmpty) {
+        return cached;
+      }
+      try {
+        final matched = await _hifiMatcher.matchToHifi(track).timeout(
+          const Duration(milliseconds: 3500),
+          onTimeout: () => null,
+        );
+        if (matched != null &&
+            matched.flacStreamUrl != null &&
+            matched.flacStreamUrl!.isNotEmpty) {
+          return matched;
+        }
+      } catch (_) {}
+    }
+    return track;
+  }
+
+  /// Loads and plays a list of tracks (Daily Mix, Playlist, or Track list),
+  /// ensuring the starting track resolves FLAC immediately and remaining tracks
+  /// are checked for FLAC availability BEFORE being inserted into _queue.
+  Future<void> _loadAndPlayTrackList(List<Track> tracks, int startIndex) async {
+    if (tracks.isEmpty) return;
+    final generation = ++_queueLoadGeneration;
+    final idx = startIndex.clamp(0, tracks.length - 1);
+
+    // 1. Immediately resolve selected starting track for FLAC BEFORE playback & queueing
+    final startTrack = tracks[idx];
+    _currentTrack = startTrack;
+    _isBuffering = true;
+    _isHifiResolving = true;
+    _queue = [startTrack];
+    _currentIndex = 0;
+    notifyListeners();
+
+    final resolvedStart = await _resolveTrackForQueue(startTrack);
+    if (generation != _queueLoadGeneration) return;
+
+    _queue = [resolvedStart];
+    _currentIndex = 0;
+    _currentTrack = resolvedStart;
+    notifyListeners();
+    unawaited(playTrack(resolvedStart));
+
+    // 2. Pre-resolve remaining tracks for FLAC BEFORE adding each to _queue
+    final remainingWithIndices = <MapEntry<int, Track>>[];
+    for (int i = 0; i < tracks.length; i++) {
+      if (i != idx) remainingWithIndices.add(MapEntry(i, tracks[i]));
+    }
+
+    const batchSize = 3;
+    for (int b = 0; b < remainingWithIndices.length; b += batchSize) {
+      if (generation != _queueLoadGeneration) return;
+      final batch = remainingWithIndices.skip(b).take(batchSize).toList();
+      final resolvedBatch = await Future.wait(
+        batch.map((entry) async =>
+            MapEntry(entry.key, await _resolveTrackForQueue(entry.value))),
+      );
+      if (generation != _queueLoadGeneration) return;
+
+      for (final entry in resolvedBatch) {
+        final originalIndex = entry.key;
+        final resolvedTrack = entry.value;
+
+        if (originalIndex < idx) {
+          final insertPos = _queue.indexWhere((t) {
+            final origPos = tracks.indexWhere((orig) =>
+                orig.id == t.id ||
+                (orig.youtubeVideoId != null &&
+                    orig.youtubeVideoId == t.youtubeVideoId));
+            return origPos > originalIndex;
+          });
+          if (insertPos != -1 && insertPos <= _currentIndex) {
+            _queue.insert(insertPos, resolvedTrack);
+            _currentIndex++;
+          } else {
+            _queue.insert(_currentIndex, resolvedTrack);
+            _currentIndex++;
+          }
+        } else {
+          _queue.add(resolvedTrack);
+        }
+      }
+      _persistPlayerState();
+      notifyListeners();
+    }
+  }
+
   void playDailyMix(DailyMix mix, [int startIndex = 0]) {
-    if (mix.tracks.isEmpty) return;
-    _queue = List.from(mix.tracks);
-    final idx = startIndex.clamp(0, _queue.length - 1);
-    _currentIndex = idx;
-    playTrack(_queue[idx]);
+    _loadAndPlayTrackList(mix.tracks, startIndex);
   }
 
   Future<void> refreshDailyMixes() async {
@@ -918,36 +1019,30 @@ class PlayerProvider extends ChangeNotifier {
     SharedPreferences.getInstance().then((prefs) {
       prefs.setString(_recentPlaylistKey, playlist.id);
     }).catchError((_) {});
-    _queue = List.from(playlist.tracks);
-    final idx = startIndex.clamp(0, _queue.length - 1);
-    _currentIndex = idx;
-    playTrack(_queue[idx]);
-    notifyListeners();
+    _loadAndPlayTrackList(playlist.tracks, startIndex);
   }
 
   void playTrackList(List<Track> tracks, [int startIndex = 0]) {
-    if (tracks.isEmpty) return;
-    _queue = List.from(tracks);
-    final idx = startIndex.clamp(0, _queue.length - 1);
-    _currentIndex = idx;
-    playTrack(_queue[idx]);
+    _loadAndPlayTrackList(tracks, startIndex);
   }
 
   void shuffleTrackList(List<Track> tracks) {
     if (tracks.isEmpty) return;
     final shuffled = List<Track>.from(tracks)..shuffle();
-    playTrackList(shuffled, 0);
+    _loadAndPlayTrackList(shuffled, 0);
   }
 
-  void playNext(Track track) {
+  Future<void> playNext(Track track) async {
+    final resolved = await _resolveTrackForQueue(track);
     if (_queue.isEmpty) {
-      _queue.add(track);
+      _queue.add(resolved);
       _currentIndex = 0;
-      playTrack(track);
+      await playTrack(resolved);
       return;
     }
     final nextIdx = (_currentIndex + 1).clamp(0, _queue.length);
-    _queue.insert(nextIdx, track);
+    _queue.insert(nextIdx, resolved);
+    _persistPlayerState();
     notifyListeners();
   }
 
@@ -1454,22 +1549,22 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   /// Condition 2: When songs are added to the queue
-  void addToQueue(Track track) {
-    final sanitized = _sanitizeTrack(track);
-    _queue.add(sanitized);
+  Future<void> addToQueue(Track track) async {
+    final resolved = await _resolveTrackForQueue(track);
+    _queue.add(resolved);
     _persistPlayerState();
     notifyListeners();
     _preResolveUpcomingQueue();
-    _resolveTrackHiFiInBackground(sanitized);
   }
 
-  void addTracksToQueue(List<Track> tracks) {
-    final sanitizedList = tracks.map(_sanitizeTrack).toList();
-    _queue.addAll(sanitizedList);
+  Future<void> addTracksToQueue(List<Track> tracks) async {
+    for (final t in tracks) {
+      final resolved = await _resolveTrackForQueue(t);
+      _queue.add(resolved);
+      notifyListeners();
+    }
     _persistPlayerState();
-    notifyListeners();
     _preResolveUpcomingQueue();
-    _resolveQueueHiFiInBackground();
   }
 
   void _resolveQueueHiFiInBackground() {
@@ -1509,7 +1604,8 @@ class PlayerProvider extends ChangeNotifier {
           !_queue.any((q) =>
               (q.youtubeVideoId ?? q.id) ==
               (nextTrack.youtubeVideoId ?? nextTrack.id))) {
-        _queue.add(nextTrack);
+        final resolvedNext = await _resolveTrackForQueue(nextTrack);
+        _queue.add(resolvedNext);
         notifyListeners();
         _preResolveUpcomingQueue();
 
@@ -1522,7 +1618,8 @@ class PlayerProvider extends ChangeNotifier {
             !_queue.any((q) =>
                 (q.youtubeVideoId ?? q.id) ==
                 (secondTrack.youtubeVideoId ?? secondTrack.id))) {
-          _queue.add(secondTrack);
+          final resolvedSecond = await _resolveTrackForQueue(secondTrack);
+          _queue.add(resolvedSecond);
           notifyListeners();
           _preResolveUpcomingQueue();
         }

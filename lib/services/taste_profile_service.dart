@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/daily_mix.dart';
 import '../models/track.dart';
+import 'hifi_matcher.dart';
 import 'youtube_music_service.dart';
 
 /// Tracks listening behavior, calculates artist and genre affinities,
@@ -229,6 +230,10 @@ class TasteProfileService {
             : mixTracks.first.thumbnailUrl)
         : anchor.highResThumbnailUrl;
 
+    final matcher = HifiMatcher();
+    final enhancedTracks =
+        mixTracks.map((t) => matcher.getCachedHiFi(t) ?? t).toList();
+
     return DailyMix(
       id: id,
       title: title,
@@ -236,7 +241,7 @@ class TasteProfileService {
       badge: badge,
       coverUrl: cover,
       gradientColors: gradientColors,
-      tracks: mixTracks,
+      tracks: enhancedTracks,
       seedArtist: artist,
     );
   }
@@ -277,6 +282,10 @@ class TasteProfileService {
             : mixTracks.first.thumbnailUrl)
         : '';
 
+    final matcher = HifiMatcher();
+    final enhancedTracks =
+        mixTracks.map((t) => matcher.getCachedHiFi(t) ?? t).toList();
+
     return DailyMix(
       id: id,
       title: title,
@@ -284,7 +293,7 @@ class TasteProfileService {
       badge: badge,
       coverUrl: cover,
       gradientColors: gradientColors,
-      tracks: mixTracks,
+      tracks: enhancedTracks,
     );
   }
 
@@ -320,8 +329,11 @@ class TasteProfileService {
   List<DailyMix> _buildStarterMixes(List<Track> catalog) {
     if (catalog.isEmpty) return [];
 
-    final mix1Tracks = catalog.take(4).toList();
-    final mix2Tracks = catalog.reversed.take(4).toList();
+    final matcher = HifiMatcher();
+    final enhancedCatalog =
+        catalog.map((t) => matcher.getCachedHiFi(t) ?? t).toList();
+    final mix1Tracks = enhancedCatalog.take(4).toList();
+    final mix2Tracks = enhancedCatalog.reversed.take(4).toList();
 
     return [
       DailyMix(
@@ -347,18 +359,18 @@ class TasteProfileService {
         title: 'Chill Lounge',
         subtitle: 'Mellow grooves & relaxing acoustic',
         badge: 'CHILL',
-        coverUrl: catalog.length > 2 ? catalog[2].highResThumbnailUrl : '',
+        coverUrl: enhancedCatalog.length > 2 ? enhancedCatalog[2].highResThumbnailUrl : '',
         gradientColors: const [Color(0xFF11998E), Color(0xFF38EF7D)],
-        tracks: catalog,
+        tracks: enhancedCatalog,
       ),
       DailyMix(
         id: 'starter_4',
         title: 'Hi-Fi Discovery',
         subtitle: 'Pure lossless masters in FLAC',
         badge: 'FLAC MIX',
-        coverUrl: catalog.first.highResThumbnailUrl,
+        coverUrl: enhancedCatalog.first.highResThumbnailUrl,
         gradientColors: const [Color(0xFFCCFF00), Color(0xFF1D212C)],
-        tracks: catalog.where((t) => t.isLossless).toList(),
+        tracks: enhancedCatalog.where((t) => t.isLossless).toList(),
       ),
     ];
   }
