@@ -18,7 +18,7 @@ class LyricLine {
   factory LyricLine.fromJson(Map<String, dynamic> json) {
     return LyricLine(
       timestamp: Duration(milliseconds: (json['ms'] as num?)?.toInt() ?? 0),
-      text: json['text']?.toString() ?? '',
+      text: LyricsService.normalizeLyricText(json['text']?.toString() ?? ''),
     );
   }
 }
@@ -54,6 +54,7 @@ class LyricsService {
         final List<dynamic> decoded = jsonDecode(raw);
         final lines = decoded
             .map((e) => LyricLine.fromJson(e as Map<String, dynamic>))
+            .where((l) => l.text.isNotEmpty)
             .toList();
         if (lines.isNotEmpty) {
           _cache[key] = lines;
@@ -150,11 +151,15 @@ class LyricsService {
   }
 
   /// Normalizes lyric text by removing musical notes, bracketed noise tags,
-  /// sound effects ([music], [singing], (applause)), and HTML entities.
+  /// sound effects ([music], [musik], [bernyanyi], (applause)), and HTML entities.
   static String normalizeLyricText(String text) {
     var cleaned = text;
 
-    // 1. Decode HTML entities
+    // 1. Strip XML / WebVTT subtitle tags (<c.color>, <font>, etc.) & styling blocks
+    cleaned = cleaned.replaceAll(RegExp(r'<[^>]+>'), '');
+    cleaned = cleaned.replaceAll(RegExp(r'\{[^}]*\}'), '');
+
+    // 2. Decode HTML entities
     cleaned = cleaned
         .replaceAll('&amp;', '&')
         .replaceAll('&#39;', "'")
@@ -163,30 +168,69 @@ class LyricsService {
         .replaceAll('&gt;', '>')
         .replaceAll('&nbsp;', ' ');
 
-    // 2. Strip musical note symbols (♪, ♫, ♩, ♬)
-    cleaned = cleaned.replaceAll(RegExp(r'[♪♫♩♬]+'), '');
+    // 3. Strip musical note symbols (♪, ♫, ♩, ♬, ♭, ♮, ♯)
+    cleaned = cleaned.replaceAll(RegExp(r'[♪♫♩♬♭♮♯]+'), '');
 
-    // 3. Strip sound effect / cue tags in brackets or parentheses
+    // 4. Universal Square & Lenticular Bracket Stripping (Inline & Standalone):
+    // In lyric transcriptions, singers never sing bracketed content.
+    // Brackets strictly denote ASR sound descriptions ([musik], [bernyanyi], [music],
+    // [applause], [música]) or structural section headers ([Chorus], [Verse 1], 【サビ】).
+    cleaned = cleaned
+        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+        .replaceAll(RegExp(r'［[^］]*］'), '')
+        .replaceAll(RegExp(r'【[^】]*】'), '')
+        .replaceAll(RegExp(r'〔[^〕]*〕'), '')
+        .replaceAll(RegExp(r'《[^》]*》'), '');
+
+    // 5. Multi-lingual Parenthetical Audio Descriptor Stripping:
+    // Parentheses (...) can contain legitimate backing vocals ('(I need you)', '(cinta)').
+    // Therefore, only strip known multi-lingual sound effect cues and production markers.
     cleaned = cleaned.replaceAll(
       RegExp(
-        r'\[(?:music|singing|applause|cheering|laughter|instrumental|vocalizing|intro|outro|beat drops|guitar solo|drum solo)[^\]]*\]',
+        r'\((?:music|musik|música|musique|musica|singing|bernyanyi|canto|cantando|chant|vocalizing|applause|tepuk\s*tangan|aplausos|applaudissements|laughter|tertawa|risas|rires|cheering|sorak(?:an)?|instrumental|instrumen|intro|outro|beat\s*drops?|solo|guitar\s*solo|drum\s*solo|whistling|siulan|screaming|teriakan)[^)]*\)',
         caseSensitive: false,
       ),
       '',
     );
-    cleaned = cleaned.replaceAll(
-      RegExp(
-        r'\((?:music|singing|applause|cheering|laughter|instrumental|vocalizing|intro|outro|beat drops|guitar solo|drum solo)[^)]*\)',
-        caseSensitive: false,
-      ),
-      '',
-    );
 
-    // 4. Strip standalone structural tags if the entire line is a bracketed tag
-    cleaned = cleaned.replaceAll(RegExp(r'^\s*\[[^\]]+\]\s*$'), '');
+    // If an entire line is enclosed in parentheses and contains purely a non-lyric cue, prune it
+    if (RegExp(r'^\s*\([^)]{0,35}\)\s*$').hasMatch(cleaned)) {
+      final inside = cleaned
+          .replaceAll(RegExp(r'^\s*\(|\)\s*$'), '')
+          .toLowerCase()
+          .trim();
+      const nonLyricCues = {
+        'instrumental',
+        'instrumen',
+        'music',
+        'musik',
+        'música',
+        'musique',
+        'musica',
+        'solo',
+        'guitar solo',
+        'drum solo',
+        'intro',
+        'outro',
+        'applause',
+        'cheering',
+      };
+      if (inside.isEmpty || nonLyricCues.contains(inside)) {
+        cleaned = '';
+      }
+    }
 
-    // 5. Normalize whitespace and trim
+    // 6. Clean dangling spaces before punctuation left by tag removals
+    cleaned = cleaned.replaceAll(RegExp(r'\s+([.,!?:;])'), r'$1');
+
+    // 7. Normalize whitespace and trim
     cleaned = cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    // 8. If the line only consists of residual punctuation without letters/digits, treat as empty
+    if (RegExp(r'^[.,!?:;\-_~—]+$').hasMatch(cleaned)) {
+      cleaned = '';
+    }
+
     return cleaned;
   }
 
