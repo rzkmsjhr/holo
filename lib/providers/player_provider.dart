@@ -264,9 +264,11 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _syncNotificationPlaybackState() {
+    final effectivePlaying = _isPlaying || _isTransitioningTrack;
+    final effectiveBuffering = _isBuffering || _isTransitioningTrack;
     HoloAudioServiceManager.handler.syncPlaybackState(
-      isPlaying: _isPlaying,
-      isBuffering: _isBuffering,
+      isPlaying: effectivePlaying,
+      isBuffering: effectiveBuffering,
       position: _position,
       bufferedPosition: _audioPlayer.bufferedPosition,
     );
@@ -363,6 +365,10 @@ class PlayerProvider extends ChangeNotifier {
 
     _stateSub = _audioPlayer.playerStateStream.listen((state) {
       if (_isUsingYtIframe) return;
+      if (state.processingState == ProcessingState.completed) {
+        _handleTrackCompletion();
+        return;
+      }
       _isPlaying = state.playing;
       _isBuffering = state.processingState == ProcessingState.buffering ||
           state.processingState == ProcessingState.loading;
@@ -370,9 +376,6 @@ class PlayerProvider extends ChangeNotifier {
         ConnectivityService().markOnline();
       }
       _syncNotificationPlaybackState();
-      if (state.processingState == ProcessingState.completed) {
-        _handleTrackCompletion();
-      }
       notifyListeners();
     });
 
@@ -447,8 +450,9 @@ class PlayerProvider extends ChangeNotifier {
     }
     _hasTrackCompleted = true;
     _isTransitioningTrack = true;
+    _syncNotificationPlaybackState();
     logDebug('_handleTrackCompletion: current track finished. Advancing to next track...');
-    next();
+    next(isAutoAdvance: true);
   }
 
   Track _sanitizeTrack(Track t) {
@@ -1061,7 +1065,7 @@ class PlayerProvider extends ChangeNotifier {
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
-        final online = await ConnectivityService().checkConnectivity(forceImmediate: true);
+        final online = await ConnectivityService().checkConnectivity();
         _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
@@ -1128,7 +1132,7 @@ class PlayerProvider extends ChangeNotifier {
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
       } else {
-        final online = await ConnectivityService().checkConnectivity(forceImmediate: true);
+        final online = await ConnectivityService().checkConnectivity();
         _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
@@ -1281,7 +1285,7 @@ class PlayerProvider extends ChangeNotifier {
       return;
     }
 
-    if (!isOnline) {
+    if (!isOnline && ConnectivityService().isInForeground) {
       logDebug('_handlePlaybackFailure: offline status detected.');
       _isBuffering = false;
       _playbackError = 'No internet connection. Reconnect to stream.';
@@ -1439,7 +1443,11 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void _updateTrackInQueue(Track updated) {
-    final idx = _queue.indexWhere((t) => t.id == updated.id);
+    final upVid = updated.youtubeVideoId ?? updated.id;
+    final idx = _queue.indexWhere((t) =>
+        t.id == updated.id ||
+        (t.youtubeVideoId != null && t.youtubeVideoId == upVid) ||
+        (t.id == upVid));
     if (idx != -1) {
       _queue[idx] = updated;
     }
@@ -1504,7 +1512,6 @@ class PlayerProvider extends ChangeNotifier {
         _queue.add(nextTrack);
         notifyListeners();
         _preResolveUpcomingQueue();
-        _resolveTrackHiFiInBackground(nextTrack);
 
         // Pre-fetch a second vibe track so there is always a buffer
         final secondTrack = await _vibeService.getNextVibeTrack(
@@ -1518,7 +1525,6 @@ class PlayerProvider extends ChangeNotifier {
           _queue.add(secondTrack);
           notifyListeners();
           _preResolveUpcomingQueue();
-          _resolveTrackHiFiInBackground(secondTrack);
         }
       }
     } catch (_) {
@@ -1582,13 +1588,14 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> next() async {
+  Future<void> next({bool isAutoAdvance = false}) async {
     if (_queue.isEmpty) {
       _isTransitioningTrack = false;
       return;
     }
     final now = DateTime.now();
-    if (_lastTrackChangeTime != null &&
+    if (!isAutoAdvance &&
+        _lastTrackChangeTime != null &&
         now.difference(_lastTrackChangeTime!) < const Duration(milliseconds: 1000)) {
       logDebug('next() debounced: ignoring rapid duplicate invocation');
       return;

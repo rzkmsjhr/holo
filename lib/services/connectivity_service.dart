@@ -32,6 +32,7 @@ class ConnectivityService with WidgetsBindingObserver {
   ConnectivityStatus get status => _currentStatus;
   bool get isOnline => _currentStatus != ConnectivityStatus.offline;
   bool get isSlow => _currentStatus == ConnectivityStatus.slow;
+  bool get isInForeground => _isInForeground;
   int get latencyMs => _lastLatencyMs;
   Stream<ConnectivityStatus> get statusStream => _statusController.stream;
 
@@ -132,6 +133,11 @@ class ConnectivityService with WidgetsBindingObserver {
     ConnectivityStatus newStatus = _currentStatus;
 
     if (!reachable) {
+      if (!_isInForeground) {
+        // When screen is off / in background, OS Doze socket throttling may cause
+        // transient ping timeouts. Never drop to offline state while in background.
+        return isOnline;
+      }
       _consecutiveFailures++;
       if (forceImmediate || _consecutiveFailures >= 2) {
         newStatus = ConnectivityStatus.offline;

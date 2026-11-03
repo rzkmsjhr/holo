@@ -188,7 +188,7 @@ class HoloAudioServiceManager {
           androidNotificationIcon: 'mipmap/ic_launcher',
           androidShowNotificationBadge: false,
           androidNotificationClickStartsActivity: true,
-          androidStopForegroundOnPause: true,
+          androidStopForegroundOnPause: false,
           androidResumeOnClick: false,
           androidNotificationOngoing: false,
           preloadArtwork: true,
