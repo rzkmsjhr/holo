@@ -510,6 +510,7 @@ class YouTubeMusicService {
           item['flexColumns']?[1]
               ?['musicResponsiveListItemFlexColumnRenderer']?['title']?['runs'];
       String artist = 'Unknown Artist';
+      String album = '';
 
       if (flex1 != null && flex1 is List) {
         final List<String> texts = flex1
@@ -529,10 +530,28 @@ class YouTubeMusicService {
 
         if (parts.isNotEmpty) {
           final first = parts.first.trim();
-          if (first.toLowerCase() == 'song' && parts.length > 1) {
-            artist = parts[1].trim();
+          if (first.toLowerCase() == 'song') {
+            if (parts.length > 1) artist = parts[1].trim();
+            if (parts.length > 2 && !parts[2].contains(':')) {
+              album = parts[2].trim();
+            }
           } else {
             artist = first;
+            if (parts.length > 1 && !parts[1].contains(':')) {
+              album = parts[1].trim();
+            }
+          }
+        }
+      }
+
+      // Check flexColumns[2] if album wasn't found in flex1
+      if (album.isEmpty && (item['flexColumns'] as List?) != null && (item['flexColumns'] as List).length > 2) {
+        final flex2 = item['flexColumns']?[2]
+            ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs'];
+        if (flex2 is List && flex2.isNotEmpty) {
+          final aText = flex2[0]?['text']?.toString() ?? '';
+          if (aText.isNotEmpty && !aText.contains(':')) {
+            album = aText.trim();
           }
         }
       }
@@ -553,6 +572,7 @@ class YouTubeMusicService {
         id: videoId,
         title: TextEncodingUtils.cleanMojibake(title),
         artist: TextEncodingUtils.cleanMojibake(artist),
+        album: TextEncodingUtils.cleanMojibake(album),
         thumbnailUrl: Track.toHighResUrl(thumbUrl),
         durationSeconds: durationSecs > 0 ? durationSecs : 0,
         youtubeVideoId: videoId,

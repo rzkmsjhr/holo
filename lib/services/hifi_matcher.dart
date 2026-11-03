@@ -1,5 +1,8 @@
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
+import 'flac_cache_service.dart';
 import 'kuwo_service.dart';
 import 'monochrome_service.dart';
 
@@ -42,16 +45,97 @@ class VersionFlags {
   }
 }
 
+class _HifiMatchCandidate {
+  final String provider; // 'kuwo' or 'monochrome'
+  final int score;
+  final Map<String, dynamic>? kuwoRaw;
+  final String? kuwoBitrate;
+  final bool isHiRes;
+  final Track? monoTrack;
+
+  _HifiMatchCandidate({
+    required this.provider,
+    required this.score,
+    this.kuwoRaw,
+    this.kuwoBitrate,
+    required this.isHiRes,
+    this.monoTrack,
+  });
+}
+
 class HifiMatcher {
   final KuwoService _kuwoService = KuwoService();
   final MonochromeService _monochromeService = MonochromeService();
 
   /// Current matcher version. Incrementing forces stale persisted tracks to be re-evaluated.
-  static const int matcherVersion = 8;
+  static const int matcherVersion = 9;
+
+  static const String _storageKey = 'holo_hifi_cache_v2';
+  bool _isInitialized = false;
 
   // In-memory cache for fast resolution
   static final Map<String, Track> _resolutionCache = {};
   static final Set<String> _unmatchedCache = {};
+
+  Future<void> init() async {
+    if (_isInitialized) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_storageKey);
+      if (saved != null && saved.isNotEmpty) {
+        final Map<String, dynamic> decoded = jsonDecode(saved);
+        decoded.forEach((key, val) {
+          if (val is Map<String, dynamic>) {
+            final t = Track.fromJson(val);
+            if (t.isLossless && t.flacStreamUrl != null && t.flacStreamUrl!.isNotEmpty) {
+              _resolutionCache[key] = t;
+            }
+          }
+        });
+      }
+    } catch (_) {}
+    _isInitialized = true;
+  }
+
+  void _persistResolution(String key, Track track) {
+    _resolutionCache[key] = track;
+    SharedPreferences.getInstance().then((prefs) {
+      final Map<String, dynamic> cacheMap = {};
+      _resolutionCache.forEach((k, v) {
+        cacheMap[k] = v.toJson();
+      });
+      prefs.setString(_storageKey, jsonEncode(cacheMap));
+    }).catchError((_) {});
+  }
+
+  /// Synchronously checks if a track has a cached or downloaded Hi-Fi FLAC stream.
+  Track? getCachedHiFi(Track track) {
+    final trackIdKey = track.youtubeVideoId ?? track.id;
+    if (_resolutionCache.containsKey(trackIdKey)) {
+      return _resolutionCache[trackIdKey];
+    }
+    final textKey =
+        '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
+    if (_resolutionCache.containsKey(textKey)) {
+      return _resolutionCache[textKey];
+    }
+    final localPath = FlacCacheService().getCachedFilePath(trackIdKey) ??
+        FlacCacheService().getCachedFilePath(textKey);
+    if (localPath != null) {
+      return track.copyWith(
+        flacStreamUrl: localPath,
+        audioSource: 'flac_cache',
+        isLossless: true,
+        audioFormat: '16-bit • 44.1kHz Lossless FLAC (Cached)',
+        extraData: {
+          ...?track.extraData,
+          'hifiVersion': matcherVersion,
+          'isLocalCache': true,
+        },
+      );
+    }
+    return null;
+  }
 
   static const Set<String> knownUpstreamMismatches = {
     '168395054749057024', // Dewa 19 - Aku Milikmu (2021 Virzha single instead of 1994 Ari Lasso master)
@@ -61,16 +145,6 @@ class HifiMatcher {
   };
 
   static const List<String> videoKeywords = [
-    'official music video',
-    'official video',
-    'music video',
-    'official audio video',
-    'lyric video',
-    'lyrics video',
-    'visualizer',
-    'official visualizer',
-    'performance video',
-    'live performance',
     'dance practice',
     'live at',
     'live in',
@@ -79,16 +153,6 @@ class HifiMatcher {
     'full concert',
     'trailer',
     'teaser',
-    '[mv]',
-    '(mv)',
-    '[m/v]',
-    '(m/v)',
-    '[official video]',
-    '(official video)',
-    '[official music video]',
-    '(official music video)',
-    '(video)',
-    '[video]',
   ];
 
   static const List<String> derivativeKeywords = [
@@ -138,7 +202,7 @@ class HifiMatcher {
   );
 
   /// Checks if a YouTube track is eligible for Hi-Fi elevation.
-  /// Rejects music videos, live concerts, dance practices, covers, and derivatives.
+  /// Rejects live concerts, dance practices, covers, and derivatives.
   static bool isEligibleTrack(Track track) {
     final itemType = (track.extraData?['itemType']?.toString() ?? '').toLowerCase().trim();
     if (itemType == 'video') return false;
@@ -149,7 +213,6 @@ class HifiMatcher {
     final title = track.title.toLowerCase().trim();
     if (videoKeywords.any((k) => title.contains(k))) return false;
     if (derivativeKeywords.any((k) => title.contains(k))) return false;
-    if (RegExp(r'\b(mv|m/v)\b', caseSensitive: false).hasMatch(title)) return false;
 
     return true;
   }
@@ -338,8 +401,8 @@ class HifiMatcher {
     return false;
   }
 
-  /// Scores a candidate track against target metadata using multilingual cross-script comparison.
-  /// Returns a confidence score from 0 to 200. Minimum qualifying score is 85.
+  /// Scores a candidate track against target metadata using artist, title, duration, and album.
+  /// Returns a confidence score from 0 to 300. Minimum qualifying score is 80.
   static int scoreTrackCandidate({
     required String targetTitle,
     required String targetArtist,
@@ -348,6 +411,8 @@ class HifiMatcher {
     required String candTitle,
     required String candArtist,
     required int candDurSecs,
+    String? targetAlbum,
+    String? candAlbum,
   }) {
     // 0. Upstream mismatch blacklist
     if (isKnownUpstreamMismatch(candId, candTitle, candArtist)) {
@@ -423,44 +488,85 @@ class HifiMatcher {
       }
     }
 
-    // If title does not match at all, reject immediately
     if (!titleMatched) {
       return 0;
     }
 
-    // 4. Strict duration comparison
+    // 4. Album comparison (bonus points if present and matching)
+    if (targetAlbum != null &&
+        candAlbum != null &&
+        targetAlbum.trim().isNotEmpty &&
+        candAlbum.trim().isNotEmpty) {
+      final tAlbum = cleanString(targetAlbum);
+      final cAlbum = cleanString(candAlbum);
+      if (tAlbum.isNotEmpty && cAlbum.isNotEmpty) {
+        if (tAlbum == cAlbum) {
+          score += 25;
+        } else if (tAlbum.contains(cAlbum) || cAlbum.contains(tAlbum)) {
+          score += 15;
+        }
+      }
+    }
+
+    // 5. Duration comparison (allowing reasonable video intro/outro variance)
     if (targetDurSecs > 0 && candDurSecs > 0) {
       final diff = (targetDurSecs - candDurSecs).abs();
-      final maxAllowedDiff = (targetDurSecs * 0.05).clamp(15.0, 25.0).round();
+      final maxAllowedDiff = (targetDurSecs * 0.12).clamp(25.0, 45.0).round();
       if (diff > maxAllowedDiff) {
         return 0;
       }
 
-      if (diff <= 2) {
+      if (diff <= 3) {
         score += 40;
-      } else if (diff <= 4) {
+      } else if (diff <= 6) {
         score += 25;
-      } else if (diff <= 7) {
-        score += 10;
       } else if (diff <= 12) {
-        score = (score - 15).clamp(0, 300);
+        score += 10;
+      } else if (diff <= 25) {
+        score = (score - 5).clamp(0, 300);
       } else {
-        score = (score - 45).clamp(0, 300);
+        score = (score - 20).clamp(0, 300);
       }
     } else if (targetDurSecs > 0 && candDurSecs == 0) {
-      score = (score - 20).clamp(0, 300);
+      score = (score - 10).clamp(0, 300);
     }
 
     return score;
   }
 
-  /// Attempts to elevate an eligible YouTube track to Lossless FLAC.
-  /// Priority:
-  /// 1. Kuwo FLAC (Top Priority for Lossless FLAC)
-  /// 2. Monochrome FLAC (Secondary verified fallback)
-  /// 3. Returns null if neither can serve Hi-Fi (falls back cleanly to YouTube)
+  /// Refreshes an expired FLAC URL from persistent extraData without re-matching.
+  Future<Track?> refreshFlacUrl(Track track) async {
+    if (!track.isLossless) return null;
+    final source = track.audioSource;
+    if (source == 'kuwo' && track.extraData != null) {
+      final songId = track.extraData!['songid']?.toString() ?? '';
+      final time = track.extraData!['time'];
+      final sign = track.extraData!['sign']?.toString() ?? '';
+      final bitrate = track.extraData!['bitrate']?.toString() ?? '2000';
+      if (songId.isNotEmpty) {
+        final newUrl = await _kuwoService.getFlacStreamUrl(
+          songId: songId,
+          time: time,
+          sign: sign,
+          bitrate: bitrate,
+        );
+        if (newUrl != null && newUrl.isNotEmpty) {
+          final updated = track.copyWith(flacStreamUrl: newUrl);
+          final trackIdKey = track.youtubeVideoId ?? track.id;
+          final textKey =
+              '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
+          _persistResolution(trackIdKey, updated);
+          _persistResolution(textKey, updated);
+          return updated;
+        }
+      }
+    }
+    // If not Kuwo or refresh failed, re-run full match
+    return matchToHifi(track);
+  }
+
+  /// Attempts to elevate an eligible YouTube track to Lossless FLAC across Kuwo & Monochrome in parallel.
   Future<Track?> matchToHifi(Track youtubeTrack) async {
-    // 0. Eligibility check
     if (!isEligibleTrack(youtubeTrack)) {
       return null;
     }
@@ -482,154 +588,201 @@ class HifiMatcher {
       return _resolutionCache[textKey];
     }
 
+    // Check local disk cache first
+    final flacCache = FlacCacheService();
+    final cachedPath = flacCache.getCachedFilePath(trackIdKey) ??
+        flacCache.getCachedFilePath(textKey);
+    if (cachedPath != null) {
+      final elevated = youtubeTrack.copyWith(
+        flacStreamUrl: cachedPath,
+        audioSource: 'flac_cache',
+        isLossless: true,
+        audioFormat: '16-bit • 44.1kHz Lossless FLAC (Cached)',
+        extraData: {
+          ...?youtubeTrack.extraData,
+          'hifiVersion': matcherVersion,
+          'isLocalCache': true,
+        },
+      );
+      _persistResolution(trackIdKey, elevated);
+      _persistResolution(textKey, elevated);
+      return elevated;
+    }
+
     final cleanedTitle = cleanTitle(youtubeTrack.title);
     final targetArtist = youtubeTrack.artist.trim();
     final targetDurSecs = youtubeTrack.durationSeconds;
+    final targetAlbum = youtubeTrack.album;
 
-    final queries = [
-      '$cleanedTitle $targetArtist'.trim(),
-      cleanedTitle,
-    ];
+    final primaryQuery = '$cleanedTitle $targetArtist'.trim();
+    final secondaryQuery = cleanedTitle;
 
-    // 1. Primary Provider: Kuwo FLAC
-    Map<String, dynamic>? bestKuwoCand;
-    String? bestKuwoFlacBitrate;
-    int bestKuwoScore = 0;
+    // Concurrently search Kuwo and Monochrome
+    final candidates = <_HifiMatchCandidate>[];
 
-    for (final q in queries) {
-      try {
-        final candidates = await _kuwoService.searchCandidates(q, size: 8);
-        for (final c in candidates) {
-          final flacBitrate = _kuwoService.extractFlacBitrate(c);
-          if (flacBitrate == null) continue;
+    await Future.wait([
+      // 1. Search Kuwo
+      (() async {
+        for (final q in [primaryQuery, secondaryQuery]) {
+          try {
+            final list = await _kuwoService.searchCandidates(q, size: 8);
+            for (final c in list) {
+              final flacBitrate = _kuwoService.extractFlacBitrate(c);
+              if (flacBitrate == null) continue;
 
-          final cId = c['id']?.toString() ?? '';
-          if (cId.isEmpty) continue;
-          final cTitle = c['name']?.toString() ?? '';
-          final cArtist = c['artist']?.toString() ?? '';
-          final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
+              final cId = c['id']?.toString() ?? '';
+              if (cId.isEmpty) continue;
+              final cTitle = c['name']?.toString() ?? '';
+              final cArtist = c['artist']?.toString() ?? '';
+              final cAlbum = c['album_name']?.toString() ?? '';
+              final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
 
-          final score = scoreTrackCandidate(
-            targetTitle: youtubeTrack.title,
-            targetArtist: targetArtist,
-            targetDurSecs: targetDurSecs,
-            candId: cId,
-            candTitle: cTitle,
-            candArtist: cArtist,
-            candDurSecs: cDur,
-          );
+              final score = scoreTrackCandidate(
+                targetTitle: youtubeTrack.title,
+                targetArtist: targetArtist,
+                targetDurSecs: targetDurSecs,
+                targetAlbum: targetAlbum,
+                candId: cId,
+                candTitle: cTitle,
+                candArtist: cArtist,
+                candAlbum: cAlbum,
+                candDurSecs: cDur,
+              );
 
-          if (score >= 85 && score > bestKuwoScore) {
-            bestKuwoCand = c;
-            bestKuwoFlacBitrate = flacBitrate;
-            bestKuwoScore = score;
+              if (score >= 80) {
+                candidates.add(_HifiMatchCandidate(
+                  provider: 'kuwo',
+                  score: score,
+                  kuwoRaw: c,
+                  kuwoBitrate: flacBitrate,
+                  isHiRes: _kuwoService.isHiResFlac(c),
+                ));
+              }
+            }
+          } catch (_) {}
+          if (candidates.any((cand) => cand.provider == 'kuwo' && cand.score >= 120)) {
+            break;
           }
         }
-      } catch (_) {}
+      })(),
 
-      if (bestKuwoScore >= 95) {
-        break; // Strong match found on primary query; skip secondary query
-      }
+      // 2. Search Monochrome
+      (() async {
+        try {
+          final list = await _monochromeService.searchTracks(primaryQuery, limit: 10);
+          for (final mono in list) {
+            final score = scoreTrackCandidate(
+              targetTitle: youtubeTrack.title,
+              targetArtist: targetArtist,
+              targetDurSecs: targetDurSecs,
+              targetAlbum: targetAlbum,
+              candId: mono.id,
+              candTitle: mono.title,
+              candArtist: mono.artist,
+              candAlbum: mono.album,
+              candDurSecs: mono.durationSeconds,
+            );
+
+            if (score >= 80) {
+              final isHiRes = mono.audioFormat?.contains('24-bit') == true;
+              candidates.add(_HifiMatchCandidate(
+                provider: 'monochrome',
+                score: score,
+                isHiRes: isHiRes,
+                monoTrack: mono,
+              ));
+            }
+          }
+        } catch (_) {}
+      })(),
+    ]);
+
+    if (candidates.isEmpty) {
+      _unmatchedCache.add(trackIdKey);
+      _unmatchedCache.add(textKey);
+      return null;
     }
 
-    Track? kuwoElevated;
-    bool kuwoIsHiRes = false;
+    // Sort by score descending (with bonus for Hi-Res)
+    candidates.sort((a, b) {
+      final aTotal = a.score + (a.isHiRes ? 10 : 0);
+      final bTotal = b.score + (b.isHiRes ? 10 : 0);
+      return bTotal.compareTo(aTotal);
+    });
 
-    if (bestKuwoCand != null && bestKuwoFlacBitrate != null) {
-      final songId = bestKuwoCand['id']?.toString() ?? '';
-      final time = bestKuwoCand['time'];
-      final sign = bestKuwoCand['sign']?.toString() ?? '';
-      kuwoIsHiRes = _kuwoService.isHiResFlac(bestKuwoCand);
+    // Try candidates in order until a stream resolves
+    for (final cand in candidates) {
+      if (cand.provider == 'kuwo' && cand.kuwoRaw != null && cand.kuwoBitrate != null) {
+        final c = cand.kuwoRaw!;
+        final songId = c['id']?.toString() ?? '';
+        final time = c['time'];
+        final sign = c['sign']?.toString() ?? '';
 
-      final flacUrl = await _kuwoService.getFlacStreamUrl(
-        songId: songId,
-        time: time,
-        sign: sign,
-        bitrate: bestKuwoFlacBitrate,
-      );
-
-      if (flacUrl != null && flacUrl.isNotEmpty) {
-        kuwoElevated = youtubeTrack.copyWith(
-          flacStreamUrl: flacUrl,
-          audioSource: 'kuwo',
-          isLossless: true,
-          audioFormat: kuwoIsHiRes
-              ? '24-bit • 96kHz Lossless FLAC'
-              : '16-bit • 44.1kHz Lossless FLAC',
-          extraData: {
-            ...?youtubeTrack.extraData,
-            'hifiVersion': matcherVersion,
-            'hifiId': 'kuwo_$songId',
-            'matchScore': bestKuwoScore,
-            'isHiRes': kuwoIsHiRes,
-            'bitrate': bestKuwoFlacBitrate,
-          },
+        final flacUrl = await _kuwoService.getFlacStreamUrl(
+          songId: songId,
+          time: time,
+          sign: sign,
+          bitrate: cand.kuwoBitrate!,
         );
 
-        // Return immediately as soon as Kuwo resolves a valid lossless FLAC
-        _resolutionCache[trackIdKey] = kuwoElevated;
-        _resolutionCache[textKey] = kuwoElevated;
-        return kuwoElevated;
-      }
-    }
-
-    // 2. Secondary Provider: Monochrome FLAC (check for 24-bit Hi-Res master or Kuwo fallback)
-    try {
-      final monoCandidates = await _monochromeService.searchTracks(
-        '$cleanedTitle $targetArtist',
-        limit: 10,
-      );
-
-      Track? bestMonoCand;
-      int bestMonoScore = 0;
-
-      for (final candidate in monoCandidates) {
-        final score = scoreTrackCandidate(
-          targetTitle: youtubeTrack.title,
-          targetArtist: targetArtist,
-          targetDurSecs: targetDurSecs,
-          candId: candidate.id,
-          candTitle: candidate.title,
-          candArtist: candidate.artist,
-          candDurSecs: candidate.durationSeconds,
-        );
-
-        if (score >= 85 && score > bestMonoScore) {
-          bestMonoCand = candidate;
-          bestMonoScore = score;
-        }
-      }
-
-      if (bestMonoCand != null && bestMonoCand.flacStreamUrl != null) {
-        final monoFormat = bestMonoCand.audioFormat ?? '16-bit • 44.1kHz Lossless FLAC';
-        final monoIsHiRes = monoFormat.contains('24-bit') || monoFormat.contains('96kHz');
-
-        // Verify stream URL before elevating
-        final isVerified = await _monochromeService
-            .verifyStreamUrl(bestMonoCand.flacStreamUrl!);
-
-        if (isVerified) {
+        if (flacUrl != null && flacUrl.isNotEmpty) {
           final elevated = youtubeTrack.copyWith(
-            flacStreamUrl: bestMonoCand.flacStreamUrl,
-            audioSource: 'monochrome',
+            flacStreamUrl: flacUrl,
+            audioSource: 'kuwo',
             isLossless: true,
-            audioFormat: monoFormat,
+            audioFormat: cand.isHiRes
+                ? '24-bit • 96kHz Lossless FLAC'
+                : '16-bit • 44.1kHz Lossless FLAC',
             extraData: {
               ...?youtubeTrack.extraData,
               'hifiVersion': matcherVersion,
-              'hifiId': bestMonoCand.id,
-              'matchScore': bestMonoScore,
-              'isHiRes': monoIsHiRes,
+              'hifiId': 'kuwo_$songId',
+              'songid': songId,
+              'time': time,
+              'sign': sign,
+              'bitrate': cand.kuwoBitrate,
+              'matchScore': cand.score,
+              'isHiRes': cand.isHiRes,
             },
           );
-          _resolutionCache[trackIdKey] = elevated;
-          _resolutionCache[textKey] = elevated;
+
+          _persistResolution(trackIdKey, elevated);
+          _persistResolution(textKey, elevated);
+
+          // Trigger background cache of FLAC file
+          flacCache.cacheFlacStream(trackIdKey, flacUrl);
+
+          return elevated;
+        }
+      } else if (cand.provider == 'monochrome' && cand.monoTrack?.flacStreamUrl != null) {
+        final mono = cand.monoTrack!;
+        final isVerified = await _monochromeService.verifyStreamUrl(mono.flacStreamUrl!);
+        if (isVerified) {
+          final elevated = youtubeTrack.copyWith(
+            flacStreamUrl: mono.flacStreamUrl,
+            audioSource: 'monochrome',
+            isLossless: true,
+            audioFormat: mono.audioFormat ?? '16-bit • 44.1kHz Lossless FLAC',
+            extraData: {
+              ...?youtubeTrack.extraData,
+              'hifiVersion': matcherVersion,
+              'hifiId': mono.id,
+              'matchScore': cand.score,
+              'isHiRes': cand.isHiRes,
+            },
+          );
+
+          _persistResolution(trackIdKey, elevated);
+          _persistResolution(textKey, elevated);
+
+          // Trigger background cache of FLAC file
+          flacCache.cacheFlacStream(trackIdKey, mono.flacStreamUrl!);
+
           return elevated;
         }
       }
-    } catch (_) {}
+    }
 
-    // 3. Mark as unmatched for fast replay
     _unmatchedCache.add(trackIdKey);
     _unmatchedCache.add(textKey);
     return null;

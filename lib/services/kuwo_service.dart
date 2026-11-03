@@ -11,18 +11,11 @@ class KuwoService {
   static const String userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-  DateTime? _cooldownUntil;
-  static const Duration _failureCooldown = Duration(seconds: 60);
-
   /// Searches Kuwo catalog for candidate tracks
   Future<List<Map<String, dynamic>>> searchCandidates(String query,
       {int size = 15}) async {
     final clean = query.trim();
     if (clean.isEmpty) return [];
-
-    if (_cooldownUntil != null && DateTime.now().isBefore(_cooldownUntil!)) {
-      return [];
-    }
 
     try {
       final res = await http
@@ -39,11 +32,9 @@ class KuwoService {
           .timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) {
-        _cooldownUntil = DateTime.now().add(_failureCooldown);
         return [];
       }
 
-      _cooldownUntil = null;
       final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
       final data = jsonDecode(decoded);
       if (data['code'] != 0) return [];
@@ -51,7 +42,6 @@ class KuwoService {
       final List list = data['data']?['list'] ?? [];
       return list.cast<Map<String, dynamic>>();
     } catch (_) {
-      _cooldownUntil = DateTime.now().add(_failureCooldown);
       return [];
     }
   }

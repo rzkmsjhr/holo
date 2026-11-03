@@ -9,17 +9,10 @@ class MonochromeService {
   static const String userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 
-  DateTime? _cooldownUntil;
-  static const Duration _failureCooldown = Duration(seconds: 60);
-
   /// Searches tracks on Monochrome for lossless FLAC audio
   Future<List<Track>> searchTracks(String query, {int limit = 20}) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return [];
-
-    if (_cooldownUntil != null && DateTime.now().isBefore(_cooldownUntil!)) {
-      return [];
-    }
 
     final url = Uri.parse(
         '$baseUrl/search/tracks?q=${Uri.encodeComponent(cleanQuery)}&limit=$limit');
@@ -30,14 +23,12 @@ class MonochromeService {
             if (!kIsWeb) 'User-Agent': userAgent,
             'Accept': 'application/json',
           })
-          .timeout(const Duration(seconds: 4));
+          .timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) {
-        _cooldownUntil = DateTime.now().add(_failureCooldown);
         return [];
       }
 
-      _cooldownUntil = null;
       final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
       final data = jsonDecode(decoded);
       final List rawTracks = data['tracks'] ?? [];
@@ -51,6 +42,11 @@ class MonochromeService {
             t['title']?.toString() ?? 'Unknown Title');
         final artist = TextEncodingUtils.cleanMojibake(
             _extractArtistNames(t['artistNames'], t['artists']));
+        final album = TextEncodingUtils.cleanMojibake(
+            t['albumTitle']?.toString() ??
+                (t['album'] is Map
+                    ? t['album']['title']?.toString() ?? ''
+                    : (t['album']?.toString() ?? '')));
         final artwork = t['artwork'] ?? t['cover'] ?? '';
         final durMs = t['duration'] ?? 0;
         final durSecs = (durMs is num) ? (durMs / 1000).round() : 0;
@@ -65,6 +61,7 @@ class MonochromeService {
           id: 'mono_$id',
           title: title,
           artist: artist,
+          album: album,
           thumbnailUrl: artwork,
           durationSeconds: durSecs,
           flacStreamUrl: streamUrl,
@@ -78,7 +75,6 @@ class MonochromeService {
 
       return tracks;
     } catch (_) {
-      _cooldownUntil = DateTime.now().add(_failureCooldown);
       return [];
     }
   }

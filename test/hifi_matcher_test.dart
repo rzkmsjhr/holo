@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pulse_audio/models/track.dart';
 import 'package:pulse_audio/services/hifi_matcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   group('HifiMatcher Eligibility & Noise Filtering', () {
@@ -25,7 +27,7 @@ void main() {
       expect(HifiMatcher.isEligibleTrack(vevoTrack), isFalse);
     });
 
-    test('rejects music videos, live concerts, and visualizers', () {
+    test('rejects live concerts, dance practices, and trailers while allowing official video/visualizer titles', () {
       final mvTrack = Track(
         id: '1',
         title: 'Hype Boy [Official MV]',
@@ -33,7 +35,17 @@ void main() {
         thumbnailUrl: '',
         durationSeconds: 180,
       );
-      expect(HifiMatcher.isEligibleTrack(mvTrack), isFalse);
+      // Official music video uploads on YouTube are eligible to match studio FLAC
+      expect(HifiMatcher.isEligibleTrack(mvTrack), isTrue);
+
+      final visualizerTrack = Track(
+        id: '3',
+        title: 'Starboy (Official Visualizer)',
+        artist: 'The Weeknd',
+        thumbnailUrl: '',
+        durationSeconds: 230,
+      );
+      expect(HifiMatcher.isEligibleTrack(visualizerTrack), isTrue);
 
       final liveTrack = Track(
         id: '2',
@@ -44,14 +56,14 @@ void main() {
       );
       expect(HifiMatcher.isEligibleTrack(liveTrack), isFalse);
 
-      final visualizerTrack = Track(
-        id: '3',
-        title: 'Starboy (Official Visualizer)',
-        artist: 'The Weeknd',
+      final dancePracticeTrack = Track(
+        id: '4',
+        title: 'Drama (Dance Practice)',
+        artist: 'aespa',
         thumbnailUrl: '',
-        durationSeconds: 230,
+        durationSeconds: 210,
       );
-      expect(HifiMatcher.isEligibleTrack(visualizerTrack), isFalse);
+      expect(HifiMatcher.isEligibleTrack(dancePracticeTrack), isFalse);
     });
 
     test('rejects karaoke, backing tracks, covers, and sped up / slowed derivatives', () {
@@ -220,6 +232,66 @@ void main() {
         candDurSecs: 220,
       );
       expect(score, equals(0));
+    });
+
+    test('awards bonus points for matching album metadata', () {
+      final scoreWithoutAlbum = HifiMatcher.scoreTrackCandidate(
+        targetTitle: 'To the Bone',
+        targetArtist: 'Pamungkas',
+        targetDurSecs: 345,
+        candId: 'kuwo_99999',
+        candTitle: 'To the Bone',
+        candArtist: 'Pamungkas',
+        candDurSecs: 345,
+      );
+
+      final scoreWithMatchingAlbum = HifiMatcher.scoreTrackCandidate(
+        targetTitle: 'To the Bone',
+        targetArtist: 'Pamungkas',
+        targetDurSecs: 345,
+        targetAlbum: 'Flying Solo',
+        candId: 'kuwo_99999',
+        candTitle: 'To the Bone',
+        candArtist: 'Pamungkas',
+        candAlbum: 'Flying Solo',
+        candDurSecs: 345,
+      );
+
+      expect(scoreWithMatchingAlbum, greaterThan(scoreWithoutAlbum));
+      expect(scoreWithMatchingAlbum - scoreWithoutAlbum, equals(25));
+    });
+  });
+
+  group('HifiMatcher Persistent Caching & Freshness', () {
+    test('HifiMatcher resolves cached FLAC synchronously via getCachedHiFi', () async {
+      final matcher = HifiMatcher();
+      final track = Track(
+        id: 'pamungkas_bone',
+        title: 'To the Bone',
+        artist: 'Pamungkas',
+        thumbnailUrl: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg',
+        durationSeconds: 345,
+      );
+
+      final elevated = track.copyWith(
+        flacStreamUrl: 'https://cdn.kuwo.cn/flac/test.flac',
+        audioSource: 'kuwo',
+        isLossless: true,
+        audioFormat: '16-bit • 44.1kHz Lossless FLAC',
+      );
+
+      SharedPreferences.setMockInitialValues({
+        'holo_hifi_cache_v2': jsonEncode({
+          'pamungkas_bone': elevated.toJson(),
+        }),
+      });
+
+      await matcher.init();
+      final retrieved = matcher.getCachedHiFi(track);
+      expect(retrieved, isNotNull);
+      expect(retrieved!.isLossless, isTrue);
+      expect(retrieved.audioSource, equals('kuwo'));
+      expect(retrieved.flacStreamUrl, equals('https://cdn.kuwo.cn/flac/test.flac'));
     });
   });
 }

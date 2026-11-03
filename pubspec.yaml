@@ -21,6 +21,7 @@ dependencies:
   # State Management & Persistence
   provider: ^6.1.2
   shared_preferences: ^2.3.5
+  path_provider: ^2.1.2
 
   # Design & Utilities
   google_fonts: ^6.2.1

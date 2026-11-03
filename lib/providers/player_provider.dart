@@ -11,6 +11,7 @@ import '../models/trending_track.dart';
 import '../services/artwork_service.dart';
 import '../services/audio_handler.dart';
 import '../services/connectivity_service.dart';
+import '../services/flac_cache_service.dart';
 import '../services/hifi_matcher.dart';
 import '../services/kworb_data_snapshot.dart';
 import '../services/lyrics_service.dart';
@@ -207,6 +208,8 @@ class PlayerProvider extends ChangeNotifier {
     _initMediaNotificationHandler();
     _initConnectivity();
     _initAudioListeners();
+    _initHifiMatcher();
+    _initFlacCache();
     _initSavedPlayerState();
     _initTasteAndMixes();
     _initTrending();
@@ -232,6 +235,21 @@ class PlayerProvider extends ChangeNotifier {
     handler.onStop = () async {
       await stopPlayback();
     };
+  }
+
+  void _initHifiMatcher() async {
+    await _hifiMatcher.init();
+    if (_currentTrack != null && !_currentTrack!.isLossless) {
+      final hifi = _hifiMatcher.getCachedHiFi(_currentTrack!);
+      if (hifi != null) {
+        _currentTrack = hifi;
+        notifyListeners();
+      }
+    }
+  }
+
+  void _initFlacCache() async {
+    await FlacCacheService().init();
   }
 
   void _syncNotificationMediaItem([Track? track]) {
@@ -459,6 +477,15 @@ class PlayerProvider extends ChangeNotifier {
     _currentTrack = null;
     _recentlyPlayed = [];
 
+    Track restoreTrack(Track raw) {
+      final sanitized = _sanitizeTrack(raw);
+      if (sanitized.isLossless && sanitized.flacStreamUrl != null) {
+        return sanitized;
+      }
+      final cachedHiFi = _hifiMatcher.getCachedHiFi(sanitized);
+      return cachedHiFi ?? sanitized;
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
 
@@ -468,7 +495,7 @@ class PlayerProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(savedRecent);
         _recentlyPlayed = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
-            .map(_sanitizeTrack)
+            .map(restoreTrack)
             .toList();
       }
 
@@ -478,7 +505,7 @@ class PlayerProvider extends ChangeNotifier {
         final List<dynamic> list = jsonDecode(savedQueue);
         _queue = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
-            .map(_sanitizeTrack)
+            .map(restoreTrack)
             .toList();
       }
       final savedIndex = prefs.getInt(_lastIndexKey) ?? 0;
@@ -490,7 +517,7 @@ class PlayerProvider extends ChangeNotifier {
       final savedTrack = prefs.getString(_lastTrackKey);
       if (savedTrack != null && savedTrack.isNotEmpty) {
         final Map<String, dynamic> trackJson = jsonDecode(savedTrack);
-        final track = _sanitizeTrack(Track.fromJson(trackJson));
+        final track = restoreTrack(Track.fromJson(trackJson));
         _currentTrack = track;
         _duration = Duration(seconds: track.durationSeconds);
         _position = Duration.zero;
@@ -573,14 +600,12 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     bool changed = false;
-    final isStudioArt = art.contains('mzstatic.com') || art.contains('dzcdn.net');
 
     if (_currentTrack != null &&
         isMatch(_currentTrack!.artist, _currentTrack!.title) &&
         (_currentTrack!.thumbnailUrl.isEmpty ||
             _currentTrack!.thumbnailUrl.contains('unsplash.com') ||
-            _currentTrack!.thumbnailUrl.contains('maxresdefault.jpg') ||
-            isStudioArt)) {
+            _currentTrack!.thumbnailUrl.contains('maxresdefault.jpg'))) {
       _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
       _syncNotificationMediaItem(_currentTrack);
       changed = true;
@@ -592,8 +617,7 @@ class PlayerProvider extends ChangeNotifier {
         if (isMatch(t.artist, t.title) &&
             (t.thumbnailUrl.isEmpty ||
                 t.thumbnailUrl.contains('unsplash.com') ||
-                t.thumbnailUrl.contains('maxresdefault.jpg') ||
-                isStudioArt)) {
+                t.thumbnailUrl.contains('maxresdefault.jpg'))) {
           _recentlyPlayed![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
@@ -605,8 +629,7 @@ class PlayerProvider extends ChangeNotifier {
       if (isMatch(t.artist, t.title) &&
           (t.thumbnailUrl.isEmpty ||
               t.thumbnailUrl.contains('unsplash.com') ||
-              t.thumbnailUrl.contains('maxresdefault.jpg') ||
-              isStudioArt)) {
+              t.thumbnailUrl.contains('maxresdefault.jpg'))) {
         _queue[i] = t.copyWith(thumbnailUrl: art);
         changed = true;
       }
@@ -617,8 +640,7 @@ class PlayerProvider extends ChangeNotifier {
       if (isMatch(t.artist, t.title) &&
           (t.thumbnailUrl.isEmpty ||
               t.thumbnailUrl.contains('unsplash.com') ||
-              t.thumbnailUrl.contains('maxresdefault.jpg') ||
-              isStudioArt)) {
+              t.thumbnailUrl.contains('maxresdefault.jpg'))) {
         _likedTracks[i] = t.copyWith(thumbnailUrl: art);
         changed = true;
       }
@@ -631,8 +653,7 @@ class PlayerProvider extends ChangeNotifier {
             (t.thumbnailUrl == null ||
                 t.thumbnailUrl!.isEmpty ||
                 t.thumbnailUrl!.contains('unsplash.com') ||
-                t.thumbnailUrl!.contains('maxresdefault.jpg') ||
-                isStudioArt)) {
+                t.thumbnailUrl!.contains('maxresdefault.jpg'))) {
           _globalTrending![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
@@ -646,8 +667,7 @@ class PlayerProvider extends ChangeNotifier {
             (t.thumbnailUrl == null ||
                 t.thumbnailUrl!.isEmpty ||
                 t.thumbnailUrl!.contains('unsplash.com') ||
-                t.thumbnailUrl!.contains('maxresdefault.jpg') ||
-                isStudioArt)) {
+                t.thumbnailUrl!.contains('maxresdefault.jpg'))) {
           _indonesiaTrending![i] = t.copyWith(thumbnailUrl: art);
           changed = true;
         }
@@ -941,7 +961,13 @@ class PlayerProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
-    final sanitizedTrack = _sanitizeTrack(track);
+    var sanitizedTrack = _sanitizeTrack(track);
+    if (!sanitizedTrack.isLossless && _isHifiEnabled) {
+      final cachedHiFi = _hifiMatcher.getCachedHiFi(sanitizedTrack);
+      if (cachedHiFi != null && cachedHiFi.flacStreamUrl != null) {
+        sanitizedTrack = cachedHiFi;
+      }
+    }
     logDebug('playTrack: "${sanitizedTrack.title}" by "${sanitizedTrack.artist}" (id: ${sanitizedTrack.id}, ytVideoId: ${sanitizedTrack.youtubeVideoId})');
     _currentTrack = sanitizedTrack;
     _addToRecentlyPlayed(sanitizedTrack);
@@ -959,6 +985,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
     }
     _persistPlayerState();
+    _triggerEndlessPlayIfNeeded();
     _duration = Duration(seconds: sanitizedTrack.durationSeconds);
     _position = Duration.zero;
     _isBuffering = true;
@@ -1059,7 +1086,7 @@ class PlayerProvider extends ChangeNotifier {
     );
 
     final hifiTrack = await hifiFuture.timeout(
-      const Duration(milliseconds: 1400),
+      const Duration(milliseconds: 7000),
       onTimeout: () => null,
     );
     _isHifiResolving = false;
@@ -1069,15 +1096,17 @@ class PlayerProvider extends ChangeNotifier {
       _currentTrack = hifiTrack;
       _updateTrackInQueue(hifiTrack);
       _updateRecentlyPlayed(hifiTrack);
+      _persistPlayerState();
       _syncNotificationMediaItem(hifiTrack);
       notifyListeners();
       await _playStream(hifiTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
     } else {
-      // If Hi-Fi timed out, cache it in background when it finishes for next replay
+      // If Hi-Fi finished later, cache it for replay
       hifiFuture.then((lateHifi) {
         if (lateHifi != null && lateHifi.flacStreamUrl != null) {
           _updateTrackInQueue(lateHifi);
           _updateRecentlyPlayed(lateHifi);
+          _persistPlayerState();
         }
       }).catchError((_) {});
 
@@ -1198,10 +1227,13 @@ class PlayerProvider extends ChangeNotifier {
       final cleanUrl = url.contains('?') ? '${url.substring(0, url.indexOf('?'))}?...' : url;
       logDebug('_playStream: attempting setUrl with $cleanUrl');
       await _audioPlayer.stop();
-      await _audioPlayer.setUrl(url);
-      logDebug('_playStream: setUrl succeeded. Setting volume and playing...');
+      if (!kIsWeb && !url.startsWith('http://') && !url.startsWith('https://')) {
+        await _audioPlayer.setFilePath(url);
+      } else {
+        await _audioPlayer.setUrl(url);
+      }
+      logDebug('_playStream: audio source set. Setting volume and playing...');
       await _audioPlayer.setVolume(_volume);
-      await _audioPlayer.play();
       _isPlaying = true;
       _isBuffering = false;
       _playbackError = null;
@@ -1210,6 +1242,7 @@ class PlayerProvider extends ChangeNotifier {
       _hasTrackCompleted = false;
       _isTransitioningTrack = false;
       _syncNotificationPlaybackState();
+      unawaited(_audioPlayer.play());
       logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
       logDebug('_playStream: caught exception: $e');
@@ -1271,14 +1304,34 @@ class PlayerProvider extends ChangeNotifier {
       logDebug('_handlePlaybackFailure: added currentVid "$currentVid" to failedCandidateIds: $_failedCandidateIdsForTrack');
     }
 
-    // 1. If current track was Hi-Fi FLAC that failed, downgrade to YouTube first
+    // 1. If current track was Hi-Fi FLAC that failed, attempt refresh first before YouTube fallback
     if (track.isLossless) {
-      logDebug('_handlePlaybackFailure: track was Hi-Fi FLAC. Downgrading to YouTube audio stream...');
+      logDebug('_handlePlaybackFailure: track was Hi-Fi FLAC. Attempting FLAC refresh before YouTube fallback...');
       _isAttemptingCandidateFallback = true;
       _isBuffering = true;
       _playbackError = null;
       notifyListeners();
 
+      try {
+        final refreshed = await _hifiMatcher.refreshFlacUrl(track);
+        if (refreshed != null &&
+            refreshed.flacStreamUrl != null &&
+            refreshed.flacStreamUrl != track.flacStreamUrl) {
+          logDebug('_handlePlaybackFailure: FLAC refresh succeeded with fresh stream URL. Playing...');
+          _currentTrack = refreshed;
+          _updateTrackInQueue(refreshed);
+          _updateRecentlyPlayed(refreshed);
+          _persistPlayerState();
+          _isAttemptingCandidateFallback = false;
+          notifyListeners();
+          await _playStream(refreshed.flacStreamUrl!, fallbackYtTrack: refreshed);
+          return;
+        }
+      } catch (refErr) {
+        logDebug('_handlePlaybackFailure: FLAC refresh threw error: $refErr');
+      }
+
+      logDebug('_handlePlaybackFailure: FLAC refresh unsuccessful. Downgrading to YouTube audio stream...');
       try {
         final ytRes = await _ytResolver.resolveStreamForTrack(
           title: track.title,
