@@ -366,12 +366,12 @@ class QueueScreen extends StatelessWidget {
                       final isCurrent = index == currentIndex;
 
                       return ReorderableDelayedDragStartListener(
-                        key: ValueKey(track.id + index.toString()),
+                        key: ValueKey(track.queueEntryId),
                         index: index,
                         child: Material(
                           color: Colors.transparent,
                           child: Dismissible(
-                            key: ValueKey('dismiss_${track.id}_$index'),
+                            key: ValueKey('dismiss_${track.queueEntryId}'),
                             direction: DismissDirection.endToStart,
                             background: Container(
                               alignment: Alignment.centerRight,

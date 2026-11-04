@@ -391,7 +391,8 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   itemBuilder: (context, index) {
                     final track = playlist.tracks[index];
                     return ListTile(
-                      key: ValueKey(track.id + index.toString()),
+                      key: ValueKey(
+                          'pl_${playlist.id}_${track.youtubeVideoId ?? track.id}'),
                       leading: ReorderableDragStartListener(
                         index: index,
                         child: const Padding(

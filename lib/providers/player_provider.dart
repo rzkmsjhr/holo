@@ -47,6 +47,21 @@ class PlayerProvider extends ChangeNotifier {
   final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
   final ValueNotifier<int> debugLogsVersion = ValueNotifier(0);
   List<Track> _queue = [];
+  int _queueEntrySeq = 0;
+
+  Track _tagQueueEntry(Track track) {
+    if (track.extraData?['queue_entry_id'] != null) {
+      return track;
+    }
+    final token =
+        'q_${track.id}_${DateTime.now().microsecondsSinceEpoch}_${++_queueEntrySeq}';
+    return track.copyWith(
+      extraData: {
+        ...?track.extraData,
+        'queue_entry_id': token,
+      },
+    );
+  }
   List<Track>? _recentlyPlayed = [];
   List<DailyMix>? _dailyMixes = [];
   bool? _isLoadingMixes = false;
@@ -520,6 +535,7 @@ class PlayerProvider extends ChangeNotifier {
         _queue = list
             .map((item) => Track.fromJson(item as Map<String, dynamic>))
             .map(restoreTrack)
+            .map(_tagQueueEntry)
             .toList();
       }
       final savedIndex = prefs.getInt(_lastIndexKey) ?? 0;
@@ -854,6 +870,7 @@ class PlayerProvider extends ChangeNotifier {
               t,
               isHifiEnabled: _isHifiEnabled,
             ))
+        .map(_tagQueueEntry)
         .toList();
 
     _queue = gatedTracks;
@@ -868,8 +885,15 @@ class PlayerProvider extends ChangeNotifier {
     final resolvedStart = await _resolveTrackForQueue(startTrack);
     if (generation != _queueLoadGeneration) return;
 
-    _queue[idx] = resolvedStart;
-    _currentTrack = resolvedStart;
+    final existingKey = _queue[idx].queueEntryId;
+    final resolvedWithKey = resolvedStart.copyWith(
+      extraData: {
+        ...?resolvedStart.extraData,
+        'queue_entry_id': existingKey,
+      },
+    );
+    _queue[idx] = resolvedWithKey;
+    _currentTrack = resolvedWithKey;
     _persistPlayerState();
     notifyListeners();
     unawaited(playTrack(resolvedStart));
@@ -1025,7 +1049,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> playNext(Track track) async {
-    final resolved = await _resolveTrackForQueue(track);
+    final resolved = _tagQueueEntry(await _resolveTrackForQueue(track));
     if (_queue.isEmpty) {
       _queue.add(resolved);
       _currentIndex = 0;
@@ -1068,10 +1092,13 @@ class PlayerProvider extends ChangeNotifier {
         (t.youtubeVideoId != null && t.youtubeVideoId == trackId));
     if (foundIndex != -1) {
       _currentIndex = foundIndex;
+      _currentTrack = _queue[foundIndex];
     } else {
       // New song selected from outside queue: seed a fresh queue around this track
-      _queue = [sanitizedTrack];
+      final tagged = _tagQueueEntry(sanitizedTrack);
+      _queue = [tagged];
       _currentIndex = 0;
+      _currentTrack = tagged;
     }
     _persistPlayerState();
     _triggerEndlessPlayIfNeeded();
@@ -1622,13 +1649,19 @@ class PlayerProvider extends ChangeNotifier {
         (t.youtubeVideoId != null && t.youtubeVideoId == upVid) ||
         (t.id == upVid));
     if (idx != -1) {
-      _queue[idx] = updated;
+      final existingKey = _queue[idx].queueEntryId;
+      _queue[idx] = updated.copyWith(
+        extraData: {
+          ...?updated.extraData,
+          'queue_entry_id': existingKey,
+        },
+      );
     }
   }
 
   /// Condition 2: When songs are added to the queue
   Future<void> addToQueue(Track track) async {
-    final resolved = await _resolveTrackForQueue(track);
+    final resolved = _tagQueueEntry(await _resolveTrackForQueue(track));
     _queue.add(resolved);
     _persistPlayerState();
     notifyListeners();
@@ -1641,6 +1674,7 @@ class PlayerProvider extends ChangeNotifier {
               t,
               isHifiEnabled: _isHifiEnabled,
             ))
+        .map(_tagQueueEntry)
         .toList();
     _queue.addAll(gated);
     _persistPlayerState();
@@ -1668,7 +1702,7 @@ class PlayerProvider extends ChangeNotifier {
               (q.youtubeVideoId ?? q.id) ==
               (nextTrack.youtubeVideoId ?? nextTrack.id)) &&
           !_vibeService.isSameArtist(nextTrack, _queue.last)) {
-        final resolvedNext = await _resolveTrackForQueue(nextTrack);
+        final resolvedNext = _tagQueueEntry(await _resolveTrackForQueue(nextTrack));
         _queue.add(resolvedNext);
         notifyListeners();
         _preResolveUpcomingQueue();
@@ -1683,7 +1717,7 @@ class PlayerProvider extends ChangeNotifier {
                 (q.youtubeVideoId ?? q.id) ==
                 (secondTrack.youtubeVideoId ?? secondTrack.id)) &&
             !_vibeService.isSameArtist(secondTrack, _queue.last)) {
-          final resolvedSecond = await _resolveTrackForQueue(secondTrack);
+          final resolvedSecond = _tagQueueEntry(await _resolveTrackForQueue(secondTrack));
           _queue.add(resolvedSecond);
           notifyListeners();
           _preResolveUpcomingQueue();
@@ -1850,9 +1884,26 @@ class PlayerProvider extends ChangeNotifier {
 
   void removeFromQueue(int index) {
     if (index >= 0 && index < _queue.length) {
-      _queue.removeAt(index);
-      if (_currentIndex >= _queue.length) {
-        _currentIndex = 0;
+      final removed = _queue.removeAt(index);
+      if (_currentTrack != null) {
+        if (_currentTrack!.queueEntryId == removed.queueEntryId) {
+          if (_currentIndex >= _queue.length) {
+            _currentIndex = (_queue.length - 1).clamp(0, _queue.length);
+          }
+          if (_queue.isNotEmpty) {
+            _currentTrack = _queue[_currentIndex];
+          }
+        } else {
+          final found = _queue.indexWhere(
+              (t) => t.queueEntryId == _currentTrack!.queueEntryId);
+          if (found != -1) {
+            _currentIndex = found;
+          } else if (_currentIndex >= _queue.length) {
+            _currentIndex = (_queue.length - 1).clamp(0, _queue.length);
+          }
+        }
+      } else if (_currentIndex >= _queue.length) {
+        _currentIndex = (_queue.length - 1).clamp(0, _queue.length);
       }
       _persistPlayerState();
       notifyListeners();
@@ -1860,18 +1911,38 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void reorderQueue(int oldIndex, int newIndex) {
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
+    if (_queue.isEmpty || oldIndex < 0 || oldIndex >= _queue.length) {
+      return;
     }
+    final targetIndex = newIndex.clamp(0, _queue.length - 1);
+    if (oldIndex == targetIndex) return;
+
     final item = _queue.removeAt(oldIndex);
-    _queue.insert(newIndex, item);
+    _queue.insert(targetIndex, item);
+
+    // Keep _currentIndex pointing to the currently active track
+    if (_currentTrack != null) {
+      final curEntryId = _currentTrack!.queueEntryId;
+      final found = _queue.indexWhere((t) => t.queueEntryId == curEntryId);
+      if (found != -1) {
+        _currentIndex = found;
+      } else {
+        final curId = _currentTrack!.youtubeVideoId ?? _currentTrack!.id;
+        final fallbackFound =
+            _queue.indexWhere((t) => (t.youtubeVideoId ?? t.id) == curId);
+        if (fallbackFound != -1) {
+          _currentIndex = fallbackFound;
+        }
+      }
+    }
+
     _persistPlayerState();
     notifyListeners();
   }
 
   void clearQueue() {
     if (_currentTrack != null) {
-      _queue = [_currentTrack!];
+      _queue = [_tagQueueEntry(_currentTrack!)];
       _currentIndex = 0;
       _persistPlayerState();
       notifyListeners();
@@ -1932,8 +2003,17 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool _isDisposed = false;
+
+  @override
+  void notifyListeners() {
+    if (_isDisposed) return;
+    super.notifyListeners();
+  }
+
   @override
   void dispose() {
+    _isDisposed = true;
     _startupTimer?.cancel();
     _persistDebounce?.cancel();
     positionNotifier.dispose();

@@ -37,6 +37,12 @@ class Track {
     return '$mins:${secs.toString().padLeft(2, '0')}';
   }
 
+  /// Stable unique identifier for queue / playlist reordering and list reconciliation
+  String get queueEntryId =>
+      (extraData?['queue_entry_id'] as String?) ??
+      (extraData?['entry_id'] as String?) ??
+      (youtubeVideoId != null && youtubeVideoId!.isNotEmpty ? youtubeVideoId! : id);
+
   /// Safely upgrades any thumbnail URL to a high-definition resolution without causing HTTP 404s
   static String toHighResUrl(String? url) {
     if (url == null || url.isEmpty || url.contains('unsplash.com')) return '';

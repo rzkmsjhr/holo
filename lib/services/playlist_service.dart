@@ -144,11 +144,14 @@ class PlaylistService {
 
     final current = _cachedPlaylists[index];
     final tracks = List<Track>.from(current.tracks);
-    if (oldIndex < newIndex) {
-      newIndex -= 1;
+    if (tracks.isEmpty || oldIndex < 0 || oldIndex >= tracks.length) {
+      return;
     }
+    final targetIndex = newIndex.clamp(0, tracks.length - 1);
+    if (oldIndex == targetIndex) return;
+
     final item = tracks.removeAt(oldIndex);
-    tracks.insert(newIndex, item);
+    tracks.insert(targetIndex, item);
 
     _cachedPlaylists[index] = current.copyWith(tracks: tracks);
     await _saveToStorage();

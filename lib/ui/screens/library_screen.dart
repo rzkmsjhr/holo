@@ -1277,7 +1277,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               final isCurrent = player.currentTrack?.id == track.id;
 
               return Dismissible(
-                key: ValueKey('queue_${track.id}_$index'),
+                key: ValueKey('queue_${track.queueEntryId}'),
                 direction: DismissDirection.endToStart,
                 background: Container(
                   color: Colors.redAccent,
@@ -1288,7 +1288,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
                 onDismissed: (_) => player.removeFromQueue(index),
                 child: Material(
-                  key: ValueKey('track_item_${track.id}_$index'),
+                  key: ValueKey('track_item_${track.queueEntryId}'),
                   color: isCurrent
                       ? (isDark
                           ? AppColors.primary.withValues(alpha: 0.12)
