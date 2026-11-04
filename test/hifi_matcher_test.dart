@@ -136,14 +136,14 @@ void main() {
 
   group('HifiMatcher Version Flags & Conflict Resolution', () {
     test('detects version conflicts', () {
-      final studioFlags = VersionFlags.extract('Teman Bahagia');
-      final acousticFlags = VersionFlags.extract('Teman Bahagia (Acoustic)');
-      final liveFlags = VersionFlags.extract('Teman Bahagia (Live)');
+      final studioFlags = EditionMatrix.detect('Teman Bahagia');
+      final acousticFlags = EditionMatrix.detect('Teman Bahagia (Acoustic)');
+      final liveFlags = EditionMatrix.detect('Teman Bahagia (Live)');
 
-      expect(VersionFlags.hasConflict(studioFlags, acousticFlags), isTrue);
-      expect(VersionFlags.hasConflict(studioFlags, liveFlags), isTrue);
-      expect(VersionFlags.hasConflict(acousticFlags, liveFlags), isTrue);
-      expect(VersionFlags.hasConflict(studioFlags, studioFlags), isFalse);
+      expect(EditionMatrix.hasConflict(studioFlags, acousticFlags), isTrue);
+      expect(EditionMatrix.hasConflict(studioFlags, liveFlags), isTrue);
+      expect(EditionMatrix.hasConflict(acousticFlags, liveFlags), isTrue);
+      expect(EditionMatrix.hasConflict(studioFlags, studioFlags), isFalse);
     });
   });
 
@@ -258,7 +258,7 @@ void main() {
       );
 
       expect(scoreWithMatchingAlbum, greaterThan(scoreWithoutAlbum));
-      expect(scoreWithMatchingAlbum - scoreWithoutAlbum, equals(25));
+      expect(scoreWithMatchingAlbum - scoreWithoutAlbum, equals(65));
     });
   });
 
@@ -281,7 +281,7 @@ void main() {
       );
 
       SharedPreferences.setMockInitialValues({
-        'holo_hifi_cache_v2': jsonEncode({
+        'holo_hifi_cache_v11': jsonEncode({
           'pamungkas_bone': elevated.toJson(),
         }),
       });

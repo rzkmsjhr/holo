@@ -6,71 +6,84 @@ import 'flac_cache_service.dart';
 import 'kuwo_service.dart';
 import 'monochrome_service.dart';
 
-class VersionFlags {
-  final bool isAcoustic;
-  final bool isLive;
-  final bool isRemix;
-  final bool isInstrumental;
-  final bool isPiano;
-  final bool isOrchestral;
-
-  const VersionFlags({
-    required this.isAcoustic,
-    required this.isLive,
-    required this.isRemix,
-    required this.isInstrumental,
-    required this.isPiano,
-    required this.isOrchestral,
-  });
-
-  static VersionFlags extract(String title) {
-    final s = title.toLowerCase();
-    return VersionFlags(
-      isAcoustic: s.contains('acoustic'),
-      isLive: s.contains('live'),
-      isRemix: s.contains('remix') || s.contains('mix'),
-      isInstrumental: s.contains('instrumental') || s.contains('karaoke'),
-      isPiano: s.contains('piano'),
-      isOrchestral: s.contains('orchestral'),
-    );
-  }
-
-  static bool hasConflict(VersionFlags a, VersionFlags b) {
-    return a.isAcoustic != b.isAcoustic ||
-        a.isLive != b.isLive ||
-        a.isRemix != b.isRemix ||
-        a.isInstrumental != b.isInstrumental ||
-        a.isPiano != b.isPiano ||
-        a.isOrchestral != b.isOrchestral;
-  }
+enum EditionKind {
+  remix,
+  live,
+  acoustic,
+  instrumental,
+  soundtrack,
+  reRecorded,
+  cover,
 }
 
-class _HifiMatchCandidate {
-  final String provider; // 'kuwo' or 'monochrome'
-  final int score;
-  final Map<String, dynamic>? kuwoRaw;
-  final String? kuwoBitrate;
-  final bool isHiRes;
-  final Track? monoTrack;
+class EditionMatrix {
+  static final RegExp remixRegex = RegExp(
+    r'\b(remix|remixes|club\s*mix|extended\s*mix|vip\s*mix|dub\s*mix|dance\s*mix|dance\s*remix|electro\s*mix)\b',
+    caseSensitive: false,
+  );
+  static final RegExp liveRegex = RegExp(
+    r'\b(live\s*at|live\s*version|in\s*concert|live\s*in|live\s*from|tour\s*version|festival\s*live|hits\s+alive|alive\s*vol\w*|alive\s*\d{4}|live\s*sessions?|(?:london|red\s*rocks|vegas|mtv\s*unplugged|bbc|spotify|itunes|aol)\s+sessions?)\b|[\(\[\{]\s*(?:live|live\s+[^)\]\}]+)\s*[\)\]\}]|\s+-\s+live\b|(现场|演唱会|秀场音乐|秀场|现场版)',
+    caseSensitive: false,
+  );
+  static final RegExp acousticRegex = RegExp(
+    r'\b(acoustic|unplugged|stripped|piano\s*version|orchestral\s*version)\b|[\(\[\{]\s*(?:acoustic|piano|orchestral)\s*[\)\]\}]',
+    caseSensitive: false,
+  );
+  static final RegExp instrumentalRegex = RegExp(
+    r'\b(instrumental|karaoke|backing\s*track|minus\s*one|off\s*vocal)\b|(伴奏|原版伴奏)',
+    caseSensitive: false,
+  );
+  static final RegExp soundtrackRegex = RegExp(
+    r'\b(soundtrack|ost|motion\s*picture)\b|(电影主题曲|电视剧主题曲|电影插曲|电影片尾曲|影视原声|电影原声)',
+    caseSensitive: false,
+  );
+  static final RegExp reRecordedRegex = RegExp(
+    r'\b(re-record\w*|rerecord\w*|re-cut|recut)\b',
+    caseSensitive: false,
+  );
+  static final RegExp coverRegex = RegExp(
+    r'\b(originally\s*performed\s*by|made\s*popular\s*by|in\s*the\s*style\s*of|tribute\s*version|tribute\s*to)\b|[\(\[\{]\s*cover\s*[\)\]\}]|\s+-\s+cover\b',
+    caseSensitive: false,
+  );
 
-  _HifiMatchCandidate({
-    required this.provider,
-    required this.score,
-    this.kuwoRaw,
-    this.kuwoBitrate,
-    required this.isHiRes,
-    this.monoTrack,
-  });
+  static Set<EditionKind> detect(String title, [String? album]) {
+    final editions = <EditionKind>{};
+    final text = album != null && album.isNotEmpty ? '$title $album' : title;
+
+    if (remixRegex.hasMatch(text)) editions.add(EditionKind.remix);
+    if (liveRegex.hasMatch(text)) editions.add(EditionKind.live);
+    if (acousticRegex.hasMatch(text)) editions.add(EditionKind.acoustic);
+    if (instrumentalRegex.hasMatch(text)) editions.add(EditionKind.instrumental);
+    if (soundtrackRegex.hasMatch(text)) editions.add(EditionKind.soundtrack);
+    if (reRecordedRegex.hasMatch(text)) editions.add(EditionKind.reRecorded);
+    if (coverRegex.hasMatch(text)) editions.add(EditionKind.cover);
+
+    return editions;
+  }
+
+  static bool isCompatible(Set<EditionKind> target, Set<EditionKind> cand) {
+    if (target.isEmpty) {
+      return cand.isEmpty;
+    }
+    return target.length == cand.length && target.containsAll(cand);
+  }
+
+  static bool hasConflict(Set<EditionKind> target, Set<EditionKind> cand) =>
+      !isCompatible(target, cand);
 }
 
 class HifiMatcher {
   final KuwoService _kuwoService = KuwoService();
   final MonochromeService _monochromeService = MonochromeService();
 
-  /// Current matcher version. Incrementing forces stale persisted tracks to be re-evaluated.
-  static const int matcherVersion = 9;
+  /// Matcher version 11 - matching nadanada v11 specification
+  static const int matcherVersion = 11;
+  static const String _storageKey = 'holo_hifi_cache_v11';
+  static const List<String> _legacyStorageKeys = [
+    'holo_hifi_cache',
+    'holo_hifi_cache_v2',
+  ];
 
-  static const String _storageKey = 'holo_hifi_cache_v2';
   bool _isInitialized = false;
 
   // In-memory cache for fast resolution
@@ -81,13 +94,23 @@ class HifiMatcher {
     if (_isInitialized) return;
     try {
       final prefs = await SharedPreferences.getInstance();
+
+      // Clean up legacy caches
+      for (final oldKey in _legacyStorageKeys) {
+        if (prefs.containsKey(oldKey)) {
+          prefs.remove(oldKey);
+        }
+      }
+
       final saved = prefs.getString(_storageKey);
       if (saved != null && saved.isNotEmpty) {
         final Map<String, dynamic> decoded = jsonDecode(saved);
         decoded.forEach((key, val) {
           if (val is Map<String, dynamic>) {
             final t = Track.fromJson(val);
-            if (t.isLossless && t.flacStreamUrl != null && t.flacStreamUrl!.isNotEmpty) {
+            if (t.isLossless &&
+                t.flacStreamUrl != null &&
+                t.flacStreamUrl!.isNotEmpty) {
               _resolutionCache[key] = t;
             }
           }
@@ -137,11 +160,79 @@ class HifiMatcher {
     return null;
   }
 
+  /// Checks whether a track was already determined to have no Hi-Fi match.
+  bool isUnmatched(Track track) {
+    final trackIdKey = track.youtubeVideoId ?? track.id;
+    if (_unmatchedCache.contains(trackIdKey)) return true;
+    final textKey =
+        '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
+    return _unmatchedCache.contains(textKey);
+  }
+
+  /// Synchronous 0ms gate normalization applied to any track entering playlist or queue.
+  Track prepareTrackThroughGateSync(Track rawTrack, {bool isHifiEnabled = true}) {
+    var track = rawTrack;
+    if (!isEligibleTrack(track) || !isHifiEnabled) {
+      return track.copyWith(
+        flacStreamUrl: null,
+        audioSource: 'youtube',
+        isLossless: false,
+        audioFormat: 'YouTube Audio (160kbps)',
+        extraData: {
+          ...?track.extraData,
+          'hifiVersion': matcherVersion,
+          'hifiChecked': true,
+        },
+      );
+    }
+
+    // Check version
+    final v = track.extraData?['hifiVersion'];
+    if (track.isLossless && (v == null || v != matcherVersion)) {
+      track = track.copyWith(
+        flacStreamUrl: null,
+        audioSource: 'youtube',
+        isLossless: false,
+        audioFormat: 'YouTube Audio (160kbps)',
+      );
+    }
+
+    // Check cache
+    final cached = getCachedHiFi(track);
+    if (cached != null && cached.flacStreamUrl != null && cached.flacStreamUrl!.isNotEmpty) {
+      final cachedWithAlbum = cached.extraData?['resolvedWithAlbum'] == true;
+      final currentHasAlbum = track.album.trim().isNotEmpty;
+      if (currentHasAlbum && !cachedWithAlbum) {
+        return track;
+      }
+      return cached;
+    }
+
+    return track;
+  }
+
+  /// Known upstream mismatch blacklist matching nadanada matcher.rs
   static const Set<String> knownUpstreamMismatches = {
-    '168395054749057024', // Dewa 19 - Aku Milikmu (2021 Virzha single instead of 1994 Ari Lasso master)
-    '168589766881927168', // Dewa 19 feat. Virzha - Aku Milikmu (2021 Virzha remake)
-    '168395069831774208', // Dewa 19 - Tak Kan Ada Cinta Yang Lain (2021 Ello remake)
-    '168395062953115648', // Dewa 19 - Mahameru (2021 Virzha remake)
+    '168395054749057024', // Dewa 19 - Aku Milikmu (2021 Virzha)
+    '168589766881927168', // Dewa 19 feat. Virzha - Aku Milikmu
+    '168395069831774208', // Dewa 19 - Tak Kan Ada Cinta Yang Lain (2021 Ello)
+    '168395062953115648', // Dewa 19 - Mahameru (2021 Virzha)
+    '162001181',          // Kuwo fake tag: Panem. The Land sound-alike cover of Portugal. The Man - Feel It Still
+    'kuwo_162001181',
+    '228981606',          // Kuwo mislabeled: Andra & The Backbone - Main Hati (audio is actually Kepayang)
+    'kuwo_228981606',
+    '228983127',          // Kuwo mislabeled: Andra & The Backbone - Kepayang (audio is actually Hitamku)
+    'kuwo_228983127',
+    '5266278',            // Kuwo: Maroon 5 - Animals (2015 Victoria's Secret runway music)
+    'kuwo_5266278',
+    '196763238',          // Kuwo: Imagine Dragons - Demons (TELYKast Remix)
+    'kuwo_196763238',
+    '198259372',          // Kuwo: Imagine Dragons - Demons (Live From Red Rocks / 2014)
+    'kuwo_198259372',
+    '238687094',          // Kuwo: Imagine Dragons - Demons (Live London Sessions / 2013)
+    'kuwo_238687094',
+    '238687044',          // Kuwo: Imagine Dragons - Demons (TELYKast Remix on Super Deluxe)
+    'kuwo_238687044',
   };
 
   static const List<String> videoKeywords = [
@@ -185,6 +276,16 @@ class HifiMatcher {
     'megamix',
   ];
 
+  static final RegExp deluxeAlbumRegex = RegExp(
+    r"\b(expanded(\s*edition)?|super\s*deluxe(\s*edition)?|deluxe(\s*edition)?|special\s*edition|bonus\s*track\s*edition|anniversary(\s*edition)?|collector('?s)?\s*edition|tour\s*edition)\b",
+    caseSensitive: false,
+  );
+
+  static final RegExp compilationAlbumRegex = RegExp(
+    r'\b(greatest\s*hits|best\s*of|hits\s*vol\w*|volume\s*\d+|vol\.\s*\d+|the\s*collection|anthology|compilation|various\s*artists|essential)\b',
+    caseSensitive: false,
+  );
+
   static final RegExp _featRegex =
       RegExp(r'\b(feat|featuring|ft)\.?\s+.*$', caseSensitive: false);
   static final RegExp _bracketsRegex =
@@ -201,8 +302,24 @@ class HifiMatcher {
     caseSensitive: false,
   );
 
+  /// Strips Latin diacritics / accented characters (ported from nadanada script.rs)
+  static String stripLatinDiacritics(String s) {
+    const from = 'àáâãäåāăąÀÁÂÃÄÅĀĂĄèéêëēĕėęěÈÉÊËĒĔĖĘĚìíîïīĭįıÌÍÎÏĪĬĮİòóôõöøōŏőÒÓÔÕÖØŌŎŐùúûüūŭůűųÙÚÛÜŪŬŮŰŲýỳŷÿÝỲŶŸñńņňÑŃŅŇçćĉċčÇĆĈĊČśŝşșšŚŜŞȘŠźżžŹŻŽðđÐĐłŁß';
+    const to   = 'aaaaaaaaaAAAAAAAAAeeeeeeeeeEEEEEEEEEiiiiiiiiIIIIIIIIoooooooooOOOOOOOOOuuuuuuuuuUUUUUUUUUyyyyYYYYnnnnNNNNcccccCCCCCsssssSSSSSzzzZZZddDDlLs';
+    final sb = StringBuffer();
+    for (int i = 0; i < s.length; i++) {
+      final char = s[i];
+      final idx = from.indexOf(char);
+      if (idx != -1) {
+        sb.write(to[idx]);
+      } else {
+        sb.write(char);
+      }
+    }
+    return sb.toString();
+  }
+
   /// Checks if a YouTube track is eligible for Hi-Fi elevation.
-  /// Rejects live concerts, dance practices, covers, and derivatives.
   static bool isEligibleTrack(Track track) {
     final itemType = (track.extraData?['itemType']?.toString() ?? '').toLowerCase().trim();
     if (itemType == 'video') return false;
@@ -223,6 +340,7 @@ class HifiMatcher {
     lower = lower.replaceAll(_featRegex, '');
     lower = lower.replaceAll(_bracketsRegex, '');
     lower = TextEncodingUtils.cleanMojibake(lower);
+    lower = stripLatinDiacritics(lower);
     final alnumOnly = lower.replaceAll(_nonAlphaNumRegex, '');
     return alnumOnly.trim();
   }
@@ -247,6 +365,7 @@ class HifiMatcher {
     var lower = s.toLowerCase();
     lower = lower.replaceAll('- topic', '').replaceAll('topic', '');
     lower = lower.replaceAll('vevo', '');
+    lower = stripLatinDiacritics(lower);
     lower = lower.replaceAll(_nonAlphaNumRegex, ' ');
     lower = lower.replaceAll(_multiSpaceRegex, ' ');
     return lower.trim();
@@ -401,8 +520,8 @@ class HifiMatcher {
     return false;
   }
 
-  /// Scores a candidate track against target metadata using artist, title, duration, and album.
-  /// Returns a confidence score from 0 to 300. Minimum qualifying score is 80.
+  /// Scores a candidate track against target metadata using universal edition verification,
+  /// token-residue title scoring, duration matching, and tiered album matching (matching nadanada v11).
   static int scoreTrackCandidate({
     required String targetTitle,
     required String targetArtist,
@@ -419,10 +538,10 @@ class HifiMatcher {
       return 0;
     }
 
-    // 1. Version conflict check (acoustic, live, remix, instrumental)
-    final targetFlags = VersionFlags.extract(targetTitle);
-    final candFlags = VersionFlags.extract(candTitle);
-    if (VersionFlags.hasConflict(targetFlags, candFlags)) {
+    // 1. Universal Edition Matrix Compatibility
+    final targetEditions = EditionMatrix.detect(targetTitle, targetAlbum);
+    final candEditions = EditionMatrix.detect(candTitle, candAlbum);
+    if (!EditionMatrix.isCompatible(targetEditions, candEditions)) {
       return 0;
     }
 
@@ -446,7 +565,22 @@ class HifiMatcher {
 
     int score = 50; // Base score for verified artist match
 
-    // 3. Title comparison
+    // Check for unrequested collaborators in candidate artist (-35 penalty each)
+    final targetList = splitArtistList(targetArtist);
+    final candList = splitArtistList(candArtist);
+    final lowerTitle = '$targetTitle ${targetAlbum ?? ''}'.toLowerCase();
+    int unrequestedArtists = 0;
+    for (final c in candList) {
+      if (!targetList.any((t) => t == c || cleanString(t) == cleanString(c)) &&
+          !lowerTitle.contains(c.toLowerCase())) {
+        unrequestedArtists++;
+      }
+    }
+    if (unrequestedArtists > 0) {
+      score = (score - (unrequestedArtists * 35)).clamp(0, 300);
+    }
+
+    // 3. Title comparison with token residue scoring
     final targetClean = cleanString(targetTitle);
     final candClean = cleanString(candTitle);
 
@@ -455,9 +589,20 @@ class HifiMatcher {
       if (targetClean == candClean) {
         score += 100;
         titleMatched = true;
-      } else if (targetClean.contains(candClean) || candClean.contains(targetClean)) {
-        score += 65;
-        titleMatched = true;
+      } else if (candClean.contains(targetClean) || targetClean.contains(candClean)) {
+        final maxLen = targetClean.length > candClean.length ? targetClean.length : candClean.length;
+        final minLen = targetClean.length < candClean.length ? targetClean.length : candClean.length;
+        final residue = maxLen - minLen;
+        if (residue <= 3) {
+          score += 85;
+          titleMatched = true;
+        } else if (residue <= 8) {
+          score += 65;
+          titleMatched = true;
+        } else {
+          score += 45;
+          titleMatched = true;
+        }
       }
     }
 
@@ -492,43 +637,61 @@ class HifiMatcher {
       return 0;
     }
 
-    // 4. Album comparison (bonus points if present and matching)
-    if (targetAlbum != null &&
-        candAlbum != null &&
-        targetAlbum.trim().isNotEmpty &&
-        candAlbum.trim().isNotEmpty) {
-      final tAlbum = cleanString(targetAlbum);
-      final cAlbum = cleanString(candAlbum);
-      if (tAlbum.isNotEmpty && cAlbum.isNotEmpty) {
-        if (tAlbum == cAlbum) {
-          score += 25;
-        } else if (tAlbum.contains(cAlbum) || cAlbum.contains(tAlbum)) {
-          score += 15;
-        }
-      }
-    }
-
-    // 5. Duration comparison (allowing reasonable video intro/outro variance)
+    // 4. Strict Studio Duration comparison
     if (targetDurSecs > 0 && candDurSecs > 0) {
       final diff = (targetDurSecs - candDurSecs).abs();
-      final maxAllowedDiff = (targetDurSecs * 0.12).clamp(25.0, 45.0).round();
+      final maxAllowedDiff = targetDurSecs > 350
+          ? (targetDurSecs * 0.02).clamp(7.0, 12.0).round()
+          : 7;
+
       if (diff > maxAllowedDiff) {
-        return 0;
+        return 0; // Alternate take, live version, or unedited audio -> disqualify
       }
 
-      if (diff <= 3) {
-        score += 40;
-      } else if (diff <= 6) {
-        score += 25;
-      } else if (diff <= 12) {
-        score += 10;
-      } else if (diff <= 25) {
-        score = (score - 5).clamp(0, 300);
+      if (diff <= 2) {
+        score += 40; // Exact studio duration match down to 2s
+      } else if (diff <= 4) {
+        score += 15; // Minor fade/pad variance
       } else {
-        score = (score - 20).clamp(0, 300);
+        score = (score - 30).clamp(0, 300); // 5s to 7s penalty
       }
     } else if (targetDurSecs > 0 && candDurSecs == 0) {
-      score = (score - 10).clamp(0, 300);
+      score = (score - 25).clamp(0, 300);
+    }
+
+    // 5. Tiered Album comparison & compilation penalty
+    if (candAlbum != null && candAlbum.trim().isNotEmpty) {
+      final cLower = candAlbum.toLowerCase();
+      final targetIsComp = targetAlbum != null &&
+          compilationAlbumRegex.hasMatch(targetAlbum.toLowerCase());
+
+      // Compilation penalty if target is not a compilation
+      if (!targetIsComp && compilationAlbumRegex.hasMatch(cLower)) {
+        score = (score - 45).clamp(0, 300);
+      }
+
+      if (targetAlbum != null && targetAlbum.trim().isNotEmpty) {
+        final tClean = cleanString(targetAlbum);
+        final cClean = cleanString(candAlbum);
+        if (tClean.isNotEmpty && cClean.isNotEmpty) {
+          final tHasDeluxe = deluxeAlbumRegex.hasMatch(targetAlbum.toLowerCase());
+          final cHasDeluxe = deluxeAlbumRegex.hasMatch(cLower);
+
+          if (tClean == cClean) {
+            if (!tHasDeluxe && cHasDeluxe) {
+              score += 30; // Tier 2 Deluxe bonus
+            } else {
+              score += 65; // Tier 1 Canonical base album bonus
+            }
+          } else if (tClean.contains(cClean) || cClean.contains(tClean)) {
+            if (!tHasDeluxe && cHasDeluxe) {
+              score += 20;
+            } else {
+              score += 35; // Partial album match
+            }
+          }
+        }
+      }
     }
 
     return score;
@@ -561,11 +724,11 @@ class HifiMatcher {
         }
       }
     }
-    // If not Kuwo or refresh failed, re-run full match
     return matchToHifi(track);
   }
 
-  /// Attempts to elevate an eligible YouTube track to Lossless FLAC across Kuwo & Monochrome in parallel.
+  /// Attempts to elevate an eligible YouTube track to Lossless FLAC
+  /// with STRICT provider priority: Kuwo Primary -> Monochrome Fallback -> YouTube (null).
   Future<Track?> matchToHifi(Track youtubeTrack) async {
     if (!isEligibleTrack(youtubeTrack)) {
       return null;
@@ -612,177 +775,227 @@ class HifiMatcher {
     final cleanedTitle = cleanTitle(youtubeTrack.title);
     final targetArtist = youtubeTrack.artist.trim();
     final targetDurSecs = youtubeTrack.durationSeconds;
-    final targetAlbum = youtubeTrack.album;
+    final targetAlbum = youtubeTrack.album.trim();
 
-    final primaryQuery = '$cleanedTitle $targetArtist'.trim();
-    final secondaryQuery = cleanedTitle;
+    // =========================================================================
+    // PASS 1: KUWO PRIMARY PROVIDER (flac.music.hi.cn)
+    // Multi-pass query: Album-first -> Base artist+title -> Clean title
+    // =========================================================================
+    final kuwoQueries = <String>[];
+    if (targetAlbum.isNotEmpty) {
+      kuwoQueries.add('$targetArtist $cleanedTitle $targetAlbum'.trim());
+      final deAlb = stripLatinDiacritics('$targetArtist $cleanedTitle $targetAlbum'.trim());
+      if (deAlb != kuwoQueries.first && !kuwoQueries.contains(deAlb)) {
+        kuwoQueries.add(deAlb);
+      }
+    }
+    final baseKuwo = '$targetArtist $cleanedTitle'.trim();
+    if (!kuwoQueries.contains(baseKuwo)) {
+      kuwoQueries.add(baseKuwo);
+    }
+    final deBase = stripLatinDiacritics(baseKuwo);
+    if (deBase != baseKuwo && !kuwoQueries.contains(deBase)) {
+      kuwoQueries.add(deBase);
+    }
+    if (!kuwoQueries.contains(cleanedTitle)) {
+      kuwoQueries.add(cleanedTitle);
+    }
 
-    // Concurrently search Kuwo and Monochrome
-    final candidates = <_HifiMatchCandidate>[];
+    Map<String, dynamic>? bestKuwoRaw;
+    String? bestKuwoBitrate;
+    bool bestKuwoIsHiRes = false;
+    int bestKuwoScore = 0;
 
-    await Future.wait([
-      // 1. Search Kuwo
-      (() async {
-        for (final q in [primaryQuery, secondaryQuery]) {
-          try {
-            final list = await _kuwoService.searchCandidates(q, size: 8);
-            for (final c in list) {
-              final flacBitrate = _kuwoService.extractFlacBitrate(c);
-              if (flacBitrate == null) continue;
-
-              final cId = c['id']?.toString() ?? '';
-              if (cId.isEmpty) continue;
-              final cTitle = c['name']?.toString() ?? '';
-              final cArtist = c['artist']?.toString() ?? '';
-              final cAlbum = c['album_name']?.toString() ?? '';
-              final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
-
-              final score = scoreTrackCandidate(
-                targetTitle: youtubeTrack.title,
-                targetArtist: targetArtist,
-                targetDurSecs: targetDurSecs,
-                targetAlbum: targetAlbum,
-                candId: cId,
-                candTitle: cTitle,
-                candArtist: cArtist,
-                candAlbum: cAlbum,
-                candDurSecs: cDur,
-              );
-
-              if (score >= 80) {
-                candidates.add(_HifiMatchCandidate(
-                  provider: 'kuwo',
-                  score: score,
-                  kuwoRaw: c,
-                  kuwoBitrate: flacBitrate,
-                  isHiRes: _kuwoService.isHiResFlac(c),
-                ));
-              }
-            }
-          } catch (_) {}
-          if (candidates.any((cand) => cand.provider == 'kuwo' && cand.score >= 120)) {
-            break;
+    for (final q in kuwoQueries.take(4)) {
+      try {
+        final list = await _kuwoService.searchCandidates(q, size: 12);
+        // Count duplicate track titles within same album to detect untagged bonus discs
+        final albumTitleCounts = <String, int>{};
+        for (final c in list) {
+          final ct = cleanString(c['name']?.toString() ?? '');
+          final ca = cleanString(c['album_name']?.toString() ?? '');
+          if (ct.isNotEmpty && ca.isNotEmpty) {
+            final key = '$ct::$ca';
+            albumTitleCounts[key] = (albumTitleCounts[key] ?? 0) + 1;
           }
         }
-      })(),
 
-      // 2. Search Monochrome
-      (() async {
+        for (final c in list) {
+          final flacBitrate = _kuwoService.extractFlacBitrate(c);
+          if (flacBitrate == null) continue;
+
+          final cId = c['id']?.toString() ?? '';
+          if (cId.isEmpty) continue;
+          final cTitle = c['name']?.toString() ?? '';
+          final cArtist = c['artist']?.toString() ?? '';
+          final cAlbum = c['album_name']?.toString() ?? '';
+          final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
+
+          var score = scoreTrackCandidate(
+            targetTitle: youtubeTrack.title,
+            targetArtist: targetArtist,
+            targetDurSecs: targetDurSecs,
+            targetAlbum: targetAlbum.isNotEmpty ? targetAlbum : null,
+            candId: cId,
+            candTitle: cTitle,
+            candArtist: cArtist,
+            candAlbum: cAlbum,
+            candDurSecs: cDur,
+          );
+
+          if (score == 0) continue;
+
+          // Deduct 25 if multiple tracks in the same album share identical title
+          final ct = cleanString(cTitle);
+          final ca = cleanString(cAlbum);
+          if ((albumTitleCounts['$ct::$ca'] ?? 0) > 1) {
+            score = (score - 25).clamp(0, 300);
+          }
+
+          if (score >= 140) {
+            if (score > bestKuwoScore) {
+              bestKuwoScore = score;
+              bestKuwoRaw = c;
+              bestKuwoBitrate = flacBitrate;
+              bestKuwoIsHiRes = _kuwoService.isHiResFlac(c);
+            }
+          }
+        }
+      } catch (_) {}
+
+      // Early break on definitive high-confidence match
+      final earlyExit = targetAlbum.isNotEmpty ? 200 : 170;
+      if (bestKuwoScore >= earlyExit) {
+        break;
+      }
+    }
+
+    if (bestKuwoRaw != null && bestKuwoBitrate != null && bestKuwoScore >= 140) {
+      final songId = bestKuwoRaw['id']?.toString() ?? '';
+      final time = bestKuwoRaw['time'];
+      final sign = bestKuwoRaw['sign']?.toString() ?? '';
+
+      final flacUrl = await _kuwoService.getFlacStreamUrl(
+        songId: songId,
+        time: time,
+        sign: sign,
+        bitrate: bestKuwoBitrate,
+      );
+
+      if (flacUrl != null && flacUrl.isNotEmpty) {
+        final elevated = youtubeTrack.copyWith(
+          flacStreamUrl: flacUrl,
+          audioSource: 'kuwo',
+          isLossless: true,
+          audioFormat: bestKuwoIsHiRes
+              ? '24-bit • 96kHz Lossless FLAC'
+              : '16-bit • 44.1kHz Lossless FLAC',
+          extraData: {
+            ...?youtubeTrack.extraData,
+            'hifiVersion': matcherVersion,
+            'hifiId': 'kuwo_$songId',
+            'songid': songId,
+            'time': time,
+            'sign': sign,
+            'bitrate': bestKuwoBitrate,
+            'matchScore': bestKuwoScore,
+            'isHiRes': bestKuwoIsHiRes,
+            'resolvedWithAlbum': targetAlbum.isNotEmpty,
+            'hifiChecked': true,
+          },
+        );
+
+        _persistResolution(trackIdKey, elevated);
+        _persistResolution(textKey, elevated);
+        flacCache.cacheFlacStream(trackIdKey, flacUrl);
+        return elevated;
+      }
+    }
+
+    // =========================================================================
+    // PASS 2: MONOCHROME SECONDARY FALLBACK (tracks.monochrome.st)
+    // Only queried if Kuwo returned no qualifying candidate >= 140
+    // =========================================================================
+    if (!MonochromeService.isCoolingDown()) {
+      final monoQueries = <String>[];
+      final baseMono = '$targetArtist $cleanedTitle'.trim();
+      monoQueries.add(baseMono);
+      final deMono = stripLatinDiacritics(baseMono);
+      if (deMono != baseMono) {
+        monoQueries.add(deMono);
+      }
+      if (targetAlbum.isNotEmpty) {
+        monoQueries.add('$targetArtist $cleanedTitle $targetAlbum'.trim());
+      }
+      if (!monoQueries.contains(cleanedTitle)) {
+        monoQueries.add(cleanedTitle);
+      }
+
+      Track? bestMonoTrack;
+      int bestMonoScore = 0;
+
+      for (final q in monoQueries.take(3)) {
         try {
-          final list = await _monochromeService.searchTracks(primaryQuery, limit: 10);
+          final list = await _monochromeService.searchTracks(q, limit: 12);
           for (final mono in list) {
+            final candId = mono.extraData?['recordingId']?.toString() ?? mono.id;
             final score = scoreTrackCandidate(
               targetTitle: youtubeTrack.title,
               targetArtist: targetArtist,
               targetDurSecs: targetDurSecs,
-              targetAlbum: targetAlbum,
-              candId: mono.id,
+              targetAlbum: targetAlbum.isNotEmpty ? targetAlbum : null,
+              candId: candId,
               candTitle: mono.title,
               candArtist: mono.artist,
               candAlbum: mono.album,
               candDurSecs: mono.durationSeconds,
             );
 
-            if (score >= 80) {
-              final isHiRes = mono.audioFormat?.contains('24-bit') == true;
-              candidates.add(_HifiMatchCandidate(
-                provider: 'monochrome',
-                score: score,
-                isHiRes: isHiRes,
-                monoTrack: mono,
-              ));
+            if (score >= 140) {
+              if (score > bestMonoScore) {
+                bestMonoScore = score;
+                bestMonoTrack = mono;
+              }
             }
           }
         } catch (_) {}
-      })(),
-    ]);
 
-    if (candidates.isEmpty) {
-      _unmatchedCache.add(trackIdKey);
-      _unmatchedCache.add(textKey);
-      return null;
-    }
-
-    // Sort by score descending (with bonus for Hi-Res)
-    candidates.sort((a, b) {
-      final aTotal = a.score + (a.isHiRes ? 10 : 0);
-      final bTotal = b.score + (b.isHiRes ? 10 : 0);
-      return bTotal.compareTo(aTotal);
-    });
-
-    // Try candidates in order until a stream resolves
-    for (final cand in candidates) {
-      if (cand.provider == 'kuwo' && cand.kuwoRaw != null && cand.kuwoBitrate != null) {
-        final c = cand.kuwoRaw!;
-        final songId = c['id']?.toString() ?? '';
-        final time = c['time'];
-        final sign = c['sign']?.toString() ?? '';
-
-        final flacUrl = await _kuwoService.getFlacStreamUrl(
-          songId: songId,
-          time: time,
-          sign: sign,
-          bitrate: cand.kuwoBitrate!,
-        );
-
-        if (flacUrl != null && flacUrl.isNotEmpty) {
-          final elevated = youtubeTrack.copyWith(
-            flacStreamUrl: flacUrl,
-            audioSource: 'kuwo',
-            isLossless: true,
-            audioFormat: cand.isHiRes
-                ? '24-bit • 96kHz Lossless FLAC'
-                : '16-bit • 44.1kHz Lossless FLAC',
-            extraData: {
-              ...?youtubeTrack.extraData,
-              'hifiVersion': matcherVersion,
-              'hifiId': 'kuwo_$songId',
-              'songid': songId,
-              'time': time,
-              'sign': sign,
-              'bitrate': cand.kuwoBitrate,
-              'matchScore': cand.score,
-              'isHiRes': cand.isHiRes,
-            },
-          );
-
-          _persistResolution(trackIdKey, elevated);
-          _persistResolution(textKey, elevated);
-
-          // Trigger background cache of FLAC file
-          flacCache.cacheFlacStream(trackIdKey, flacUrl);
-
-          return elevated;
+        if (bestMonoScore >= 170) {
+          break;
         }
-      } else if (cand.provider == 'monochrome' && cand.monoTrack?.flacStreamUrl != null) {
-        final mono = cand.monoTrack!;
-        final isVerified = await _monochromeService.verifyStreamUrl(mono.flacStreamUrl!);
+      }
+
+      if (bestMonoTrack != null && bestMonoTrack.flacStreamUrl != null && bestMonoScore >= 140) {
+        final isVerified = await _monochromeService.verifyStreamUrl(bestMonoTrack.flacStreamUrl!);
         if (isVerified) {
+          final isHiRes = bestMonoTrack.audioFormat?.contains('24-bit') == true;
           final elevated = youtubeTrack.copyWith(
-            flacStreamUrl: mono.flacStreamUrl,
+            flacStreamUrl: bestMonoTrack.flacStreamUrl,
             audioSource: 'monochrome',
             isLossless: true,
-            audioFormat: mono.audioFormat ?? '16-bit • 44.1kHz Lossless FLAC',
+            audioFormat: bestMonoTrack.audioFormat ?? '16-bit • 44.1kHz Lossless FLAC',
             extraData: {
               ...?youtubeTrack.extraData,
               'hifiVersion': matcherVersion,
-              'hifiId': mono.id,
-              'matchScore': cand.score,
-              'isHiRes': cand.isHiRes,
+              'hifiId': bestMonoTrack.id,
+              'matchScore': bestMonoScore,
+              'isHiRes': isHiRes,
+              'resolvedWithAlbum': targetAlbum.isNotEmpty,
+              'hifiChecked': true,
             },
           );
 
           _persistResolution(trackIdKey, elevated);
           _persistResolution(textKey, elevated);
-
-          // Trigger background cache of FLAC file
-          flacCache.cacheFlacStream(trackIdKey, mono.flacStreamUrl!);
-
+          flacCache.cacheFlacStream(trackIdKey, bestMonoTrack.flacStreamUrl!);
           return elevated;
         }
       }
     }
 
+    // =========================================================================
+    // PASS 3: Neither Kuwo nor Monochrome matched -> Fallback to YouTube
+    // =========================================================================
     _unmatchedCache.add(trackIdKey);
     _unmatchedCache.add(textKey);
     return null;

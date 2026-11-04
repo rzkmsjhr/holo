@@ -51,7 +51,7 @@ void main() {
 
     setUp(() async {
       SharedPreferences.setMockInitialValues({
-        'holo_hifi_cache_v2': jsonEncode({
+        'holo_hifi_cache_v11': jsonEncode({
           'cached_track_1': {
             'id': 'cached_track_1',
             'title': 'To the Bone',
@@ -63,6 +63,7 @@ void main() {
             'audioSource': 'kuwo',
             'audioFormat': 'FLAC Lossless 24-bit/96kHz',
             'isLossless': true,
+            'extraData': {'resolvedWithAlbum': true, 'hifiVersion': 11},
           },
           'cached_track_2': {
             'id': 'cached_track_2',
@@ -75,6 +76,7 @@ void main() {
             'audioSource': 'monochrome',
             'audioFormat': 'FLAC Lossless 16-bit/44.1kHz',
             'isLossless': true,
+            'extraData': {'resolvedWithAlbum': true, 'hifiVersion': 11},
           },
         }),
       });

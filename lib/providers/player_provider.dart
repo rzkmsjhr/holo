@@ -482,12 +482,10 @@ class PlayerProvider extends ChangeNotifier {
     _recentlyPlayed = [];
 
     Track restoreTrack(Track raw) {
-      final sanitized = _sanitizeTrack(raw);
-      if (sanitized.isLossless && sanitized.flacStreamUrl != null) {
-        return sanitized;
-      }
-      final cachedHiFi = _hifiMatcher.getCachedHiFi(sanitized);
-      return cachedHiFi ?? sanitized;
+      return _hifiMatcher.prepareTrackThroughGateSync(
+        raw,
+        isHifiEnabled: _isHifiEnabled,
+      );
     }
 
     try {
@@ -759,19 +757,23 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   void toggleFavorite(Track track) {
-    final tId = track.youtubeVideoId ?? track.id;
+    final gated = _hifiMatcher.prepareTrackThroughGateSync(
+      track,
+      isHifiEnabled: _isHifiEnabled,
+    );
+    final tId = gated.youtubeVideoId ?? gated.id;
     final isAlreadyFav = isFavorite(tId);
     final nowFav = !isAlreadyFav;
 
     if (nowFav) {
       if (!_likedTracks.any((t) => (t.youtubeVideoId ?? t.id) == tId)) {
-        _likedTracks.insert(0, track);
+        _likedTracks.insert(0, gated);
       }
     } else {
       _likedTracks.removeWhere((t) => (t.youtubeVideoId ?? t.id) == tId);
     }
 
-    _tasteProfile.recordFavorite(track, nowFav);
+    _tasteProfile.recordFavorite(gated, nowFav);
     _saveLikedTracks();
     notifyListeners();
   }
@@ -794,21 +796,18 @@ class PlayerProvider extends ChangeNotifier {
   /// Unified Pre-Queue FLAC Resolution Gate
   /// Ensures any track is verified and elevated to FLAC before being queued.
   Future<Track> _resolveTrackForQueue(Track rawTrack) async {
-    var track = _sanitizeTrack(rawTrack);
-    if (track.isLossless &&
-        track.flacStreamUrl != null &&
-        track.flacStreamUrl!.isNotEmpty) {
-      return track;
+    final gated = _hifiMatcher.prepareTrackThroughGateSync(
+      rawTrack,
+      isHifiEnabled: _isHifiEnabled,
+    );
+    if (gated.isLossless &&
+        gated.flacStreamUrl != null &&
+        gated.flacStreamUrl!.isNotEmpty) {
+      return gated;
     }
-    if (_isHifiEnabled && HifiMatcher.isEligibleTrack(track)) {
-      final cached = _hifiMatcher.getCachedHiFi(track);
-      if (cached != null &&
-          cached.flacStreamUrl != null &&
-          cached.flacStreamUrl!.isNotEmpty) {
-        return cached;
-      }
+    if (_isHifiEnabled && HifiMatcher.isEligibleTrack(gated)) {
       try {
-        final matched = await _hifiMatcher.matchToHifi(track).timeout(
+        final matched = await _hifiMatcher.matchToHifi(gated).timeout(
           const Duration(milliseconds: 3500),
           onTimeout: () => null,
         );
@@ -819,77 +818,46 @@ class PlayerProvider extends ChangeNotifier {
         }
       } catch (_) {}
     }
-    return track;
+    return gated;
   }
 
   /// Loads and plays a list of tracks (Daily Mix, Playlist, or Track list),
-  /// ensuring the starting track resolves FLAC immediately and remaining tracks
-  /// are checked for FLAC availability BEFORE being inserted into _queue.
+  /// gating all tracks synchronously so the full queue is immediately visible in UI,
+  /// eagerly resolving the starting track for FLAC, and progressively draining FLAC
+  /// for the remainder of the queue in priority tiers without blocking UI.
   Future<void> _loadAndPlayTrackList(List<Track> tracks, int startIndex) async {
     if (tracks.isEmpty) return;
     final generation = ++_queueLoadGeneration;
     final idx = startIndex.clamp(0, tracks.length - 1);
 
-    // 1. Immediately resolve selected starting track for FLAC BEFORE playback & queueing
-    final startTrack = tracks[idx];
-    _currentTrack = startTrack;
+    // 1. Synchronously gate all tracks upfront: sanitizes titles, version check, attaches cached FLAC
+    final gatedTracks = tracks
+        .map((t) => _hifiMatcher.prepareTrackThroughGateSync(
+              t,
+              isHifiEnabled: _isHifiEnabled,
+            ))
+        .toList();
+
+    _queue = gatedTracks;
+    _currentIndex = idx;
+    _currentTrack = gatedTracks[idx];
     _isBuffering = true;
     _isHifiResolving = true;
-    _queue = [startTrack];
-    _currentIndex = 0;
     notifyListeners();
 
+    // 2. Eagerly resolve selected starting track for FLAC if not already cached
+    final startTrack = gatedTracks[idx];
     final resolvedStart = await _resolveTrackForQueue(startTrack);
     if (generation != _queueLoadGeneration) return;
 
-    _queue = [resolvedStart];
-    _currentIndex = 0;
+    _queue[idx] = resolvedStart;
     _currentTrack = resolvedStart;
+    _persistPlayerState();
     notifyListeners();
     unawaited(playTrack(resolvedStart));
 
-    // 2. Pre-resolve remaining tracks for FLAC BEFORE adding each to _queue
-    final remainingWithIndices = <MapEntry<int, Track>>[];
-    for (int i = 0; i < tracks.length; i++) {
-      if (i != idx) remainingWithIndices.add(MapEntry(i, tracks[i]));
-    }
-
-    const batchSize = 3;
-    for (int b = 0; b < remainingWithIndices.length; b += batchSize) {
-      if (generation != _queueLoadGeneration) return;
-      final batch = remainingWithIndices.skip(b).take(batchSize).toList();
-      final resolvedBatch = await Future.wait(
-        batch.map((entry) async =>
-            MapEntry(entry.key, await _resolveTrackForQueue(entry.value))),
-      );
-      if (generation != _queueLoadGeneration) return;
-
-      for (final entry in resolvedBatch) {
-        final originalIndex = entry.key;
-        final resolvedTrack = entry.value;
-
-        if (originalIndex < idx) {
-          final insertPos = _queue.indexWhere((t) {
-            final origPos = tracks.indexWhere((orig) =>
-                orig.id == t.id ||
-                (orig.youtubeVideoId != null &&
-                    orig.youtubeVideoId == t.youtubeVideoId));
-            return origPos > originalIndex;
-          });
-          if (insertPos != -1 && insertPos <= _currentIndex) {
-            _queue.insert(insertPos, resolvedTrack);
-            _currentIndex++;
-          } else {
-            _queue.insert(_currentIndex, resolvedTrack);
-            _currentIndex++;
-          }
-        } else {
-          _queue.add(resolvedTrack);
-        }
-      }
-      _persistPlayerState();
-      notifyListeners();
-    }
+    // 3. Trigger 3-Tier Progressive Queue Drain for remaining tracks
+    _scheduleProgressiveQueueDrain(generation);
   }
 
   void playDailyMix(DailyMix mix, [int startIndex = 0]) {
@@ -972,8 +940,12 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<bool> addTrackToPlaylist(String playlistId, Track track) async {
+    final gated = _hifiMatcher.prepareTrackThroughGateSync(
+      track,
+      isHifiEnabled: _isHifiEnabled,
+    );
     final success =
-        await _playlistService.addTrackToPlaylist(playlistId, track);
+        await _playlistService.addTrackToPlaylist(playlistId, gated);
     _playlists = await _playlistService.loadPlaylists(sampleCatalog: _queue);
     notifyListeners();
     return success;
@@ -1044,6 +1016,7 @@ class PlayerProvider extends ChangeNotifier {
     _queue.insert(nextIdx, resolved);
     _persistPlayerState();
     notifyListeners();
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
   /// Condition 1: When a track is going to be played (at all states)
@@ -1060,13 +1033,10 @@ class PlayerProvider extends ChangeNotifier {
       } catch (_) {}
     }
 
-    var sanitizedTrack = _sanitizeTrack(track);
-    if (!sanitizedTrack.isLossless && _isHifiEnabled) {
-      final cachedHiFi = _hifiMatcher.getCachedHiFi(sanitizedTrack);
-      if (cachedHiFi != null && cachedHiFi.flacStreamUrl != null) {
-        sanitizedTrack = cachedHiFi;
-      }
-    }
+    var sanitizedTrack = _hifiMatcher.prepareTrackThroughGateSync(
+      track,
+      isHifiEnabled: _isHifiEnabled,
+    );
     logDebug('playTrack: "${sanitizedTrack.title}" by "${sanitizedTrack.artist}" (id: ${sanitizedTrack.id}, ytVideoId: ${sanitizedTrack.youtubeVideoId})');
     _currentTrack = sanitizedTrack;
     _addToRecentlyPlayed(sanitizedTrack);
@@ -1238,64 +1208,151 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     _triggerEndlessPlayIfNeeded();
-    _preResolveUpcomingQueue();
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
-  /// Pre-resolves stream URLs, album art, and lyrics for the next 2 tracks in queue
-  /// so track transitions (including when screen is off) are instant 0ms.
-  void _preResolveUpcomingQueue() {
-    if (_queue.length <= 1) return;
-    for (int offset = 1; offset <= 2; offset++) {
-      final idx = _currentIndex + offset;
-      if (idx >= 0 && idx < _queue.length) {
-        final upcoming = _queue[idx];
-        if (upcoming.flacStreamUrl == null || upcoming.flacStreamUrl!.isEmpty) {
-          _preResolveSingleTrack(upcoming);
-        }
-        resolveArtworkFor(upcoming.artist, upcoming.title);
-        _lyricsService
-            .fetchLyrics(
-              trackName: upcoming.title,
-              artistName: upcoming.artist,
-              durationSeconds: upcoming.durationSeconds,
-              youtubeVideoId: upcoming.youtubeVideoId,
-            )
-            .catchError((_) => <LyricLine>[]);
-      }
+  bool _needsHifiResolution(Track track) {
+    if (!_isHifiEnabled) return false;
+    if (!HifiMatcher.isEligibleTrack(track)) return false;
+    if (track.isLossless &&
+        track.flacStreamUrl != null &&
+        track.flacStreamUrl!.isNotEmpty) {
+      return false;
     }
+    if (_hifiMatcher.isUnmatched(track)) return false;
+    return true;
   }
 
-  Future<void> _preResolveSingleTrack(Track track) async {
+  Future<void> _drainSingleTrack(Track track, int generation) async {
+    if (generation != _queueLoadGeneration) return;
     final key = track.youtubeVideoId ?? track.id;
     if (_preResolvingIds.contains(key)) return;
     _preResolvingIds.add(key);
+
     try {
-      if (_isHifiEnabled && HifiMatcher.isEligibleTrack(track)) {
+      if (_needsHifiResolution(track)) {
         final hifi = await _hifiMatcher.matchToHifi(track);
+        if (generation != _queueLoadGeneration) return;
         if (hifi != null && hifi.flacStreamUrl != null) {
           _updateTrackInQueue(hifi);
+          _updateRecentlyPlayed(hifi);
+          if (_currentTrack?.id == track.id) {
+            _currentTrack = hifi;
+          }
+          notifyListeners();
           return;
         }
       }
-      final ytRes = await _ytResolver.resolveStreamForTrack(
-        title: track.title,
-        artist: track.artist,
-        primaryVideoId: key,
-      );
-      if (ytRes.isSuccess && ytRes.url != null) {
-        final ytTrack = track.copyWith(
-          youtubeVideoId: ytRes.videoId ?? key,
-          flacStreamUrl: ytRes.url,
-          audioSource: 'youtube',
-          isLossless: false,
-          audioFormat: 'YouTube Audio (160kbps)',
+
+      // Pre-resolve stream URL for instant offline / screen-off transition if needed
+      if (track.flacStreamUrl == null || track.flacStreamUrl!.isEmpty) {
+        final ytRes = await _ytResolver.resolveStreamForTrack(
+          title: track.title,
+          artist: track.artist,
+          primaryVideoId: key,
         );
-        _updateTrackInQueue(ytTrack);
+        if (generation != _queueLoadGeneration) return;
+        if (ytRes.isSuccess && ytRes.url != null) {
+          final ytTrack = track.copyWith(
+            youtubeVideoId: ytRes.videoId ?? key,
+            flacStreamUrl: ytRes.url,
+            audioSource: 'youtube',
+            isLossless: false,
+            audioFormat: 'YouTube Audio (160kbps)',
+          );
+          _updateTrackInQueue(ytTrack);
+        }
       }
     } catch (_) {
     } finally {
       _preResolvingIds.remove(key);
     }
+  }
+
+  /// 3-Tier Progressive Queue Drain
+  /// Tier 1: Current track and immediate next track (+1)
+  /// Tier 2: Near Lookahead (+2, +3) with 200ms delay
+  /// Tier 3: Full-queue sweep (+4..end, 0..current-1) with 300ms delay
+  void _scheduleProgressiveQueueDrain([int? generation]) {
+    final gen = generation ?? _queueLoadGeneration;
+    if (_queue.isEmpty) return;
+
+    Future.microtask(() async {
+      if (gen != _queueLoadGeneration) return;
+
+      // Tier 1: Current track and immediate next track (+1)
+      final immediateIndices = [_currentIndex, _currentIndex + 1];
+      for (final idx in immediateIndices) {
+        if (gen != _queueLoadGeneration) return;
+        if (idx >= 0 && idx < _queue.length) {
+          final t = _queue[idx];
+          if (idx == _currentIndex + 1) {
+            resolveArtworkFor(t.artist, t.title);
+            _lyricsService
+                .fetchLyrics(
+                  trackName: t.title,
+                  artistName: t.artist,
+                  durationSeconds: t.durationSeconds,
+                  youtubeVideoId: t.youtubeVideoId,
+                )
+                .catchError((_) => <LyricLine>[]);
+          }
+          await _drainSingleTrack(t, gen);
+        }
+      }
+
+      // Tier 2: Near Lookahead (+2, +3) with 200ms delay
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (gen != _queueLoadGeneration) return;
+
+      final nearLookaheadIndices = [_currentIndex + 2, _currentIndex + 3];
+      for (final idx in nearLookaheadIndices) {
+        if (gen != _queueLoadGeneration) return;
+        if (idx >= 0 && idx < _queue.length) {
+          final t = _queue[idx];
+          resolveArtworkFor(t.artist, t.title);
+          _lyricsService
+              .fetchLyrics(
+                trackName: t.title,
+                artistName: t.artist,
+                durationSeconds: t.durationSeconds,
+                youtubeVideoId: t.youtubeVideoId,
+              )
+              .catchError((_) => <LyricLine>[]);
+          await _drainSingleTrack(t, gen);
+        }
+      }
+
+      // Tier 3: Full-queue sweep (+4..end, then 0..current-1) with 300ms delay
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (gen != _queueLoadGeneration) return;
+
+      // Forward pass: +4 to end
+      for (int idx = _currentIndex + 4; idx < _queue.length; idx++) {
+        if (gen != _queueLoadGeneration) return;
+        final t = _queue[idx];
+        if (_needsHifiResolution(t)) {
+          await _drainSingleTrack(t, gen);
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+
+      // Backward pass: 0 to _currentIndex - 1
+      for (int idx = 0; idx < _currentIndex; idx++) {
+        if (gen != _queueLoadGeneration) return;
+        final t = _queue[idx];
+        if (_needsHifiResolution(t)) {
+          await _drainSingleTrack(t, gen);
+          await Future.delayed(const Duration(milliseconds: 100));
+        }
+      }
+    });
+  }
+
+  /// Pre-resolves stream URLs, album art, and lyrics for upcoming tracks in queue
+  /// so track transitions (including when screen is off) are instant 0ms.
+  void _preResolveUpcomingQueue() {
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
   Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
@@ -1554,40 +1611,25 @@ class PlayerProvider extends ChangeNotifier {
     _queue.add(resolved);
     _persistPlayerState();
     notifyListeners();
-    _preResolveUpcomingQueue();
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
   Future<void> addTracksToQueue(List<Track> tracks) async {
-    for (final t in tracks) {
-      final resolved = await _resolveTrackForQueue(t);
-      _queue.add(resolved);
-      notifyListeners();
-    }
+    final gated = tracks
+        .map((t) => _hifiMatcher.prepareTrackThroughGateSync(
+              t,
+              isHifiEnabled: _isHifiEnabled,
+            ))
+        .toList();
+    _queue.addAll(gated);
     _persistPlayerState();
-    _preResolveUpcomingQueue();
+    notifyListeners();
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
   void _resolveQueueHiFiInBackground() {
     if (!_isHifiEnabled) return;
-    for (final track in _queue) {
-      if (track.flacStreamUrl == null || !track.isLossless) {
-        _resolveTrackHiFiInBackground(track);
-      }
-    }
-  }
-
-  void _resolveTrackHiFiInBackground(Track track) {
-    if (!_isHifiEnabled || !HifiMatcher.isEligibleTrack(track)) return;
-    _hifiMatcher.matchToHifi(track).then((hifi) {
-      if (hifi != null) {
-        _updateTrackInQueue(hifi);
-        _updateRecentlyPlayed(hifi);
-        if (_currentTrack?.id == track.id) {
-          _currentTrack = hifi;
-        }
-        notifyListeners();
-      }
-    });
+    _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
   /// Endless Play (Radio Mode) using nadanada Vibe & Genre algorithm
