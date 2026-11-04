@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 import '../core/network/holo_http_client.dart';
+import 'youtube_music_service.dart';
 
 class StreamResolutionResult {
   final String? url;
@@ -38,9 +39,6 @@ class YouTubeStreamResolver {
       'https://www.youtube.com/youtubei/v1/player?prettyPrint=false';
   static const String _innertubeSearchUrl =
       'https://www.youtube.com/youtubei/v1/search?prettyPrint=false';
-  static const String _ytmSearchUrl =
-      'https://music.youtube.com/youtubei/v1/search?prettyPrint=false';
-  static const String _ytmSongsParams = 'EgWKAQIIAWoOEAQQAxAFEAkQEBAKEBU%3D';
   static const String _androidUserAgent =
       'com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip';
 
@@ -292,7 +290,7 @@ class YouTubeStreamResolver {
     return null;
   }
 
-  /// Fast JSON Innertube search returning candidate YouTube Music Song / "- Topic" video IDs in <500ms.
+  /// Fast structured search returning candidate YouTube Music Song / "- Topic" video IDs.
   Future<List<String>> searchCandidateVideoIds(String query) async {
     final cleanQ = query.trim();
     if (cleanQ.isEmpty) return const [];
@@ -300,47 +298,18 @@ class YouTubeStreamResolver {
     final ids = <String>[];
     final seen = <String>{};
 
-    // 1. Primary: Query YouTube Music strictly with Songs filter (mirrors nadanada)
+    // 1. Primary: Use YouTubeMusicService.searchSongs (structured JSON, Songs filter, strict video/karaoke rejection)
     try {
-      final ytmHeaders = <String, String>{
-        'Content-Type': 'application/json',
-        if (!kIsWeb) ...{
-          'Origin': 'https://music.youtube.com',
-          'Referer': 'https://music.youtube.com/',
-        },
-      };
-      final ytmResponse = await HoloHttpClient.client
-          .post(
-            Uri.parse(_ytmSearchUrl),
-            headers: ytmHeaders,
-            body: jsonEncode({
-              'query': cleanQ,
-              'params': _ytmSongsParams,
-              'context': {
-                'client': {
-                  'clientName': 'WEB_REMIX',
-                  'clientVersion': '1.20250101.01.00',
-                  'hl': 'en',
-                  'gl': 'US',
-                },
-              },
-            }),
-          )
-          .timeout(const Duration(seconds: 5));
-
-      if (ytmResponse.statusCode == 200) {
-        final bodyText = utf8.decode(ytmResponse.bodyBytes);
-        final matches =
-            RegExp(r'"videoId":"([a-zA-Z0-9_-]{11})"').allMatches(bodyText);
-        for (final m in matches) {
-          final id = m.group(1);
-          if (id != null && seen.add(id)) {
-            ids.add(id);
-          }
+      final ytmService = YouTubeMusicService();
+      final tracks = await ytmService.searchSongs(cleanQ);
+      for (final track in tracks) {
+        final id = (track.youtubeVideoId ?? track.id).trim();
+        if (id.isNotEmpty && seen.add(id)) {
+          ids.add(id);
         }
       }
     } catch (e) {
-      _log('YTM Songs search failed for "$cleanQ": $e');
+      _log('YouTubeMusicService searchSongs failed for "$cleanQ": $e');
     }
 
     if (ids.isNotEmpty) {
@@ -402,7 +371,7 @@ class YouTubeStreamResolver {
       return ids;
     }
 
-    // Fallback to YoutubeExplode search only on native platforms (also with " topic")
+    // 3. Fallback to YoutubeExplode search only on native platforms (with " topic" appended)
     if (!kIsWeb) {
       try {
         final topicQuery = cleanQ.toLowerCase().endsWith(' topic')
@@ -410,8 +379,12 @@ class YouTubeStreamResolver {
             : '$cleanQ topic';
         final searchResults =
             await _yt.search.search(topicQuery).timeout(const Duration(seconds: 5));
-        for (final v in searchResults.take(5)) {
-          if (seen.add(v.id.value)) {
+        for (final v in searchResults.take(10)) {
+          final author = v.author.toLowerCase();
+          final title = v.title.toLowerCase();
+          // Avoid videos and prefer topic tracks or non-video official audio
+          if (!YouTubeMusicService.isVideoRecord(title, author) &&
+              seen.add(v.id.value)) {
             ids.add(v.id.value);
           }
         }

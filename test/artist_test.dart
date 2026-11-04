@@ -18,7 +18,7 @@ void main() {
       expect(release.year, '2026');
       expect(release.type, 'Album');
       expect(release.browseId, 'MPREb_BtXfAQVI3yJ');
-      expect(release.highResThumbnailUrl, contains('=w1080-h1080'));
+      expect(release.highResThumbnailUrl, contains('=w800-h800-l90-rj'));
     });
 
     test('ArtistDetails effectiveImage prioritizes banner over avatar', () {

@@ -41,9 +41,10 @@ class Track {
   static String toHighResUrl(String? url) {
     if (url == null || url.isEmpty || url.contains('unsplash.com')) return '';
     var highRes = url;
-    if (highRes.contains('googleusercontent.com')) {
-      highRes = highRes.replaceAll(RegExp(r'=w\d+-h\d+'), '=w1080-h1080');
-      highRes = highRes.replaceAll(RegExp(r'=s\d+'), '=s1080');
+    if (highRes.contains('googleusercontent.com') || highRes.contains('ggpht.com')) {
+      highRes = highRes
+          .replaceAll(RegExp(r'=w\d+-h\d+[^?#]*', caseSensitive: false), '=w800-h800-l90-rj')
+          .replaceAll(RegExp(r'=s\d+[^?#]*', caseSensitive: false), '=s800');
     } else if (highRes.contains('ytimg.com')) {
       // Safely ensure ytimg uses guaranteed hqdefault (avoid maxresdefault / sddefault which 404 on topic releases)
       highRes = highRes.replaceAll(
