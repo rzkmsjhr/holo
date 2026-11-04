@@ -1603,7 +1603,8 @@ class PlayerProvider extends ChangeNotifier {
       if (nextTrack != null &&
           !_queue.any((q) =>
               (q.youtubeVideoId ?? q.id) ==
-              (nextTrack.youtubeVideoId ?? nextTrack.id))) {
+              (nextTrack.youtubeVideoId ?? nextTrack.id)) &&
+          !_vibeService.isSameArtist(nextTrack, _queue.last)) {
         final resolvedNext = await _resolveTrackForQueue(nextTrack);
         _queue.add(resolvedNext);
         notifyListeners();
@@ -1617,7 +1618,8 @@ class PlayerProvider extends ChangeNotifier {
         if (secondTrack != null &&
             !_queue.any((q) =>
                 (q.youtubeVideoId ?? q.id) ==
-                (secondTrack.youtubeVideoId ?? secondTrack.id))) {
+                (secondTrack.youtubeVideoId ?? secondTrack.id)) &&
+            !_vibeService.isSameArtist(secondTrack, _queue.last)) {
           final resolvedSecond = await _resolveTrackForQueue(secondTrack);
           _queue.add(resolvedSecond);
           notifyListeners();

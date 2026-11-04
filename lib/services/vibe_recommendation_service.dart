@@ -34,11 +34,13 @@ class VibeRecommendationService {
         : <Track>[];
 
     final anchorId = anchorSong.youtubeVideoId ?? anchorSong.id;
-    final mixAnchor = (anchorId.isNotEmpty && anchorId != songAId && (songB == null || anchorId != (songB.youtubeVideoId ?? songB.id)))
+    final mixAnchor = (anchorId.isNotEmpty &&
+            anchorId != songAId &&
+            (songB == null || anchorId != (songB.youtubeVideoId ?? songB.id)))
         ? await _getMix(anchorId)
         : <Track>[];
 
-    // 3. Build candidate pool avoiding exact IDs and duplicates
+    // 3. Build candidate pool avoiding exact IDs, duplicates, and same artist as songA
     final existingIds = queue.map((s) => s.youtubeVideoId ?? s.id).toSet();
     final existingWordSets = queue.map(_getWords).toList();
 
@@ -47,7 +49,9 @@ class VibeRecommendationService {
 
     for (final track in mixA) {
       final tId = track.youtubeVideoId ?? track.id;
-      if (!existingIds.contains(tId) && !seenIds.contains(tId)) {
+      if (!existingIds.contains(tId) &&
+          !seenIds.contains(tId) &&
+          !isSameArtist(track, songA)) {
         candidatePool.add(track);
         seenIds.add(tId);
       }
@@ -56,7 +60,9 @@ class VibeRecommendationService {
     if (mixB.isNotEmpty) {
       for (final track in mixB) {
         final tId = track.youtubeVideoId ?? track.id;
-        if (!existingIds.contains(tId) && !seenIds.contains(tId)) {
+        if (!existingIds.contains(tId) &&
+            !seenIds.contains(tId) &&
+            !isSameArtist(track, songA)) {
           candidatePool.add(track);
           seenIds.add(tId);
         }
@@ -76,30 +82,45 @@ class VibeRecommendationService {
 
     // 4. Fallback search if candidate pool is exhausted
     if (available.isEmpty) {
-      try {
-        final cleanArtist = _extractArtistClean(songA);
-        final query = cleanArtist.isNotEmpty ? '$cleanArtist songs' : '${songA.title} songs';
-        final searchFallback = await _ytmService.searchSongs(query);
-        available = searchFallback.where((cand) {
+      if (songB != null && (songB.youtubeVideoId ?? songB.id).isNotEmpty) {
+        final prevResults = await _getMix(songB.youtubeVideoId ?? songB.id);
+        available = prevResults.where((cand) {
           final tId = cand.youtubeVideoId ?? cand.id;
-          if (existingIds.contains(tId)) return false;
-          final candWords = _getWords(cand);
-          for (final exWords in existingWordSets) {
-            if (_calculateSimilarity(candWords, exWords) > 0.55) return false;
-          }
-          return true;
+          return !existingIds.contains(tId) && !isSameArtist(cand, songA);
         }).toList();
-      } catch (_) {}
+      }
+
+      if (available.isEmpty && anchorId.isNotEmpty && anchorId != songAId) {
+        final anchorResults = await _getMix(anchorId);
+        available = anchorResults.where((cand) {
+          final tId = cand.youtubeVideoId ?? cand.id;
+          return !existingIds.contains(tId) && !isSameArtist(cand, songA);
+        }).toList();
+      }
+
+      if (available.isEmpty) {
+        try {
+          final query = '${anchorSong.title} radio';
+          final searchFallback = await _ytmService.searchSongs(query);
+          available = searchFallback.where((cand) {
+            final tId = cand.youtubeVideoId ?? cand.id;
+            return !existingIds.contains(tId) && !isSameArtist(cand, songA);
+          }).toList();
+        } catch (_) {}
+      }
     }
 
     if (available.isEmpty) {
-      // Final fallback: return first candidate from mixA even if similarity was close
-      if (mixA.isNotEmpty) {
-        final firstUnplayed = mixA.firstWhere(
-          (t) => !existingIds.contains(t.youtubeVideoId ?? t.id),
-          orElse: () => mixA.first,
-        );
-        return firstUnplayed;
+      // Safe fallback: pick candidate from mixA or mixAnchor that never repeats songA's artist
+      final safe = mixA.firstWhere(
+        (t) => !existingIds.contains(t.youtubeVideoId ?? t.id) && !isSameArtist(t, songA),
+        orElse: () => mixAnchor.firstWhere(
+          (t) => !existingIds.contains(t.youtubeVideoId ?? t.id) && !isSameArtist(t, songA),
+          orElse: () => Track(id: '', title: '', artist: '', thumbnailUrl: '', durationSeconds: 0),
+        ),
+      );
+      if (safe.id.isNotEmpty) {
+        return safe;
       }
       return null;
     }
@@ -117,13 +138,13 @@ class VibeRecommendationService {
       final candWords = candArtistNorm.split(RegExp(r'\s+')).where((w) => w.length > 2).toSet();
 
       // Rule A: Fatigue penalty - strictly reject if candidate is by the immediate predecessor's artist
-      if (_isSameArtist(cand, songA)) {
+      if (isSameArtist(cand, songA)) {
         scored.add(_ScoredCandidate(cand, -9999, rejected: true));
         continue;
       }
 
       // Rule B: Penalize if artist appeared in the last 2-7 songs
-      final recentConflicts = recentHistory.where((h) => _isSameArtist(cand, h)).length;
+      final recentConflicts = recentHistory.where((h) => isSameArtist(cand, h)).length;
       if (recentConflicts > 0) {
         score -= recentConflicts * 80;
       }
@@ -174,14 +195,56 @@ class VibeRecommendationService {
     final valid = scored.where((s) => !s.rejected && s.score > -200).toList()
       ..sort((a, b) => b.score.compareTo(a.score));
 
+    Track? picked;
     if (valid.isNotEmpty) {
-      return valid.first.track;
+      picked = valid.first.track;
+    } else {
+      final fallback = scored.where((s) => !s.rejected).toList()
+        ..sort((a, b) => b.score.compareTo(a.score));
+      if (fallback.isNotEmpty) {
+        picked = fallback.first.track;
+      } else {
+        picked = available.firstWhere(
+          (t) => !isSameArtist(t, songA),
+          orElse: () => Track(id: '', title: '', artist: '', thumbnailUrl: '', durationSeconds: 0),
+        );
+        if (picked.id.isEmpty) return null;
+      }
     }
 
-    final fallback = scored.where((s) => !s.rejected).toList()
-      ..sort((a, b) => b.score.compareTo(a.score));
+    // 7. Video-to-Song auto-replacement (mirrors nadanada's useMusicDiscovery.js)
+    final videoRegex = RegExp(
+      r'(official video|music video|official hd video|official music video|\bvideo\b|lirik|lyrics|lyric|cover|live)',
+      caseSensitive: false,
+    );
+    final isTopic = picked.artist.toLowerCase().endsWith('- topic');
+    final isSong = picked.extraData?['itemType'] == 'song';
 
-    return fallback.isNotEmpty ? fallback.first.track : available.first;
+    if (!isTopic && !isSong && videoRegex.hasMatch(picked.title)) {
+      final cleanTitle = picked.title
+          .replaceAll(RegExp(r'\[.*?\]|\(.*?\)', caseSensitive: false), ' ')
+          .replaceAll(videoRegex, ' ')
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+
+      if (cleanTitle.isNotEmpty) {
+        try {
+          final searchArtist = picked.artist
+              .replaceAll(RegExp(r'vevo$', caseSensitive: false), '')
+              .replaceAll(RegExp(r'official(\s+channel|\s+music)?$', caseSensitive: false), '')
+              .trim();
+          final searchResults = await _ytmService.searchSongs('$cleanTitle $searchArtist');
+          if (searchResults.isNotEmpty) {
+            final candidateSong = searchResults.first;
+            if (isSameArtist(candidateSong, picked) && !isSameArtist(candidateSong, songA)) {
+              picked = candidateSong;
+            }
+          }
+        } catch (_) {}
+      }
+    }
+
+    return picked;
   }
 
   Future<List<Track>> _getMix(String videoId) async {
@@ -245,14 +308,42 @@ class VibeRecommendationService {
         .trim();
   }
 
-  bool _isSameArtist(Track a, Track b) {
-    final normA = _normalizeArtistName(_extractArtistClean(a));
-    final normB = _normalizeArtistName(_extractArtistClean(b));
+  /// Evaluates whether two tracks are by the same artist, handling collaborations
+  /// and Japanese/Latin cross-script variations.
+  bool isSameArtist(Track a, Track b) {
+    final rawA = _extractArtistClean(a);
+    final rawB = _extractArtistClean(b);
+    final normA = _normalizeArtistName(rawA);
+    final normB = _normalizeArtistName(rawB);
     if (normA.isEmpty || normB.isEmpty) return false;
     if (normA == normB) return true;
     if (normA.length > 3 && normB.length > 3 && (normA.contains(normB) || normB.contains(normA))) {
       return true;
     }
+
+    // Cross-script Japanese / Latin pairs
+    for (final pair in YouTubeMusicService.japaneseArtistPairs) {
+      final latin = pair[0];
+      final kanji = pair[1];
+      if ((normA.contains(latin) || normA.contains(kanji)) &&
+          (normB.contains(latin) || normB.contains(kanji))) {
+        return true;
+      }
+    }
+
+    // Split multi-artist collaborations (commas, &, /, ft, feat, with, x)
+    final splitRegex = RegExp(r'[,&/]|(?:\s+(?:ft\.?|feat\.?|featuring|with|x)\s+)', caseSensitive: false);
+    final partsA = rawA.split(splitRegex).map(_normalizeArtistName).where((s) => s.length >= 2).toList();
+    final partsB = rawB.split(splitRegex).map(_normalizeArtistName).where((s) => s.length >= 2).toList();
+    for (final pA in partsA) {
+      for (final pB in partsB) {
+        if (pA == pB) return true;
+        if (pA.length > 3 && pB.length > 3 && (pA.contains(pB) || pB.contains(pA))) {
+          return true;
+        }
+      }
+    }
+
     return false;
   }
 

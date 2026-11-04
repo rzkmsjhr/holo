@@ -99,6 +99,200 @@ class YouTubeMusicService {
         return true;
       }
     }
+
+    final keyShiftRegex = RegExp(
+        r'[+-]\s*\d+\s*(?:key|キー)|(?:key|キー)\s*[+-]\s*\d+',
+        caseSensitive: false);
+    if (keyShiftRegex.hasMatch(lowerTitle)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /// Checks if a record represents a video, music video, lyric video, or visualizer
+  static bool isVideoRecord(String title, String channel) {
+    final lowerTitle = title.toLowerCase();
+    final lowerChannel = channel.toLowerCase();
+    return lowerTitle.contains('official music video') ||
+        lowerTitle.contains('official video') ||
+        lowerTitle.contains('music video') ||
+        lowerTitle.contains('official hd video') ||
+        lowerTitle.contains('lyric video') ||
+        lowerTitle.contains('lyrics video') ||
+        lowerTitle.contains('visualizer') ||
+        lowerTitle.contains('[mv]') ||
+        lowerTitle.contains('(mv)') ||
+        lowerTitle.contains('live performance') ||
+        lowerChannel.contains('vevo');
+  }
+
+  /// Checks whether a string contains CJK characters (Hiragana, Katakana, Kanji, Hangul)
+  static bool hasCjk(String s) {
+    for (final rune in s.runes) {
+      if ((rune >= 0x3040 && rune <= 0x30ff) ||
+          (rune >= 0x4e00 && rune <= 0x9faf) ||
+          (rune >= 0xac00 && rune <= 0xd7af)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Converts Katakana string to Romaji for cross-script title matching,
+  /// mirroring nadanada's `katakana_to_romaji`.
+  static String katakanaToRomaji(String s) {
+    final out = StringBuffer();
+    final chars = s.runes.map(String.fromCharCode).toList();
+    int i = 0;
+    while (i < chars.length) {
+      final c = chars[i];
+      final next = (i + 1 < chars.length) ? chars[i + 1] : null;
+
+      String? combo;
+      int advance = 1;
+
+      if (c == 'シ') {
+        if (next == 'ャ') { combo = 'sha'; advance = 2; }
+        else if (next == 'ュ') { combo = 'shu'; advance = 2; }
+        else if (next == 'ョ') { combo = 'sho'; advance = 2; }
+        else if (next == 'ェ') { combo = 'she'; advance = 2; }
+      } else if (c == 'チ') {
+        if (next == 'ャ') { combo = 'cha'; advance = 2; }
+        else if (next == 'ュ') { combo = 'chu'; advance = 2; }
+        else if (next == 'ョ') { combo = 'cho'; advance = 2; }
+        else if (next == 'ェ') { combo = 'che'; advance = 2; }
+      } else if (c == 'ジ') {
+        if (next == 'ャ') { combo = 'ja'; advance = 2; }
+        else if (next == 'ュ') { combo = 'ju'; advance = 2; }
+        else if (next == 'ョ') { combo = 'jo'; advance = 2; }
+        else if (next == 'ェ') { combo = 'je'; advance = 2; }
+      } else if (c == 'フ') {
+        if (next == 'ァ') { combo = 'fa'; advance = 2; }
+        else if (next == 'ィ') { combo = 'fi'; advance = 2; }
+        else if (next == 'ェ') { combo = 'fe'; advance = 2; }
+        else if (next == 'ォ') { combo = 'fo'; advance = 2; }
+      } else if (c == 'テ' && next == 'ィ') {
+        combo = 'ti'; advance = 2;
+      } else if (c == 'デ' && next == 'ィ') {
+        combo = 'di'; advance = 2;
+      } else if (c == 'ッ' && next != null) {
+        final nextRune = next.runes.first;
+        if (nextRune >= 0x30a1 && nextRune <= 0x30f6) {
+          i += 1;
+          continue;
+        }
+      }
+
+      if (combo != null) {
+        out.write(combo);
+        i += advance;
+        continue;
+      }
+
+      const singleMap = {
+        'ア': 'a', 'ァ': 'a', 'イ': 'i', 'ィ': 'i', 'ウ': 'u', 'ゥ': 'u', 'エ': 'e', 'ェ': 'e', 'オ': 'o', 'ォ': 'o',
+        'カ': 'ka', 'キ': 'ki', 'ク': 'ku', 'ケ': 'ke', 'コ': 'ko',
+        'サ': 'sa', 'シ': 'shi', 'ス': 'su', 'セ': 'se', 'ソ': 'so',
+        'タ': 'ta', 'チ': 'chi', 'ツ': 'tsu', 'テ': 'te', 'ト': 'to',
+        'ナ': 'na', 'ニ': 'ni', 'ヌ': 'nu', 'ネ': 'ne', 'ノ': 'no',
+        'ハ': 'ha', 'ヒ': 'hi', 'フ': 'fu', 'ヘ': 'he', 'ホ': 'ho',
+        'マ': 'ma', 'ミ': 'mi', 'ム': 'mu', 'メ': 'me', 'モ': 'mo',
+        'ヤ': 'ya', 'ャ': 'ya', 'ユ': 'yu', 'ュ': 'yu', 'ヨ': 'yo', 'ョ': 'yo',
+        'ラ': 'ra', 'リ': 'ri', 'ル': 'ru', 'レ': 're', 'ロ': 'ro',
+        'ワ': 'wa', 'ヲ': 'o', 'ン': 'n',
+        'ガ': 'ga', 'ギ': 'gi', 'グ': 'gu', 'ゲ': 'ge', 'ゴ': 'go',
+        'ザ': 'za', 'ジ': 'ji', 'ズ': 'zu', 'ゼ': 'ze', 'ゾ': 'zo',
+        'ダ': 'da', 'ヂ': 'ji', 'ヅ': 'zu', 'デ': 'de', 'ド': 'do',
+        'バ': 'ba', 'ビ': 'bi', 'ブ': 'bu', 'ベ': 'be', 'ボ': 'bo',
+        'パ': 'pa', 'ピ': 'pi', 'プ': 'pu', 'ペ': 'pe', 'ポ': 'po',
+        'ヴ': 'vu', 'ー': '', '・': ' ',
+      };
+
+      if (singleMap.containsKey(c)) {
+        out.write(singleMap[c]);
+      } else {
+        out.write(c);
+      }
+      i += 1;
+    }
+    return out.toString();
+  }
+
+  static const List<List<String>> japaneseArtistPairs = [
+    ['mariya takeuchi', '竹内まりや'],
+    ['takeuchi mariya', '竹内まりや'],
+    ['reiko takahashi', '高橋玲子'],
+    ['takahashi reiko', '高橋玲子'],
+    ['noriyuki makihara', '槇原敬之'],
+    ['makihara noriyuki', '槇原敬之'],
+    ['tatsuro yamashita', '山下達郎'],
+    ['yamashita tatsuro', '山下達郎'],
+    ['miki matsubara', '松原みき'],
+    ['matsubara miki', '松原みき'],
+    ['taeko onuki', '大貫妙子'],
+    ['onuki taeko', '大貫妙子'],
+    ['anri', '杏里'],
+    ['akina nakamori', '中森明菜'],
+    ['nakamori akina', '中森明菜'],
+    ['seiko matsuda', '松田聖子'],
+    ['matsuda seiko', '松田聖子'],
+    ['junko yagami', '八神純子'],
+    ['yagami junko', '八神純子'],
+    ['tomoko aran', '亜蘭知子'],
+    ['aran tomoko', '亜蘭知子'],
+    ['meiko nakahara', '中原めいこ'],
+    ['nakahara meiko', '中原めいこ'],
+    ['masayoshi takanaka', '高中正義'],
+    ['takanaka masayoshi', '高中正義'],
+  ];
+
+  static const List<List<String>> japaneseTitlePairs = [
+    ['シングル アゲイン', 'single again'],
+    ['シングルアゲイン', 'single again'],
+    ['プラスティック ラブ', 'plastic love'],
+    ['プラスチック ラブ', 'plastic love'],
+    ['サンセット ロード', 'sunset road'],
+    ['ステイ ウィズ ミー', 'stay with me'],
+    ['フライディ チャイナタウン', 'fly day chinatown'],
+    ['フライデー チャイナタウン', 'friday chinatown'],
+    ['真夜中のドア', 'stay with me'],
+    ['もう恋なんてしない', 'mo koi nante shinai'],
+    ['元気を出して', 'genki wo dashite'],
+    ['元気を出して', 'genki o dashite'],
+    ['縁の糸', 'enishi no ito'],
+  ];
+
+  /// Matches a candidate title against a query term, handling cross-script Katakana/English
+  static bool titleMatchesTerm(String cleanTitle, String term) {
+    if (cleanTitle.contains(term)) return true;
+    if (hasCjk(term)) {
+      final romaji = katakanaToRomaji(term);
+      final cleanRomaji = romaji.replaceAll(' ', '');
+      final cleanCand = cleanTitle.replaceAll(' ', '');
+      if (cleanRomaji.isNotEmpty && cleanCand.contains(cleanRomaji)) {
+        return true;
+      }
+      for (final pair in japaneseTitlePairs) {
+        final jp = pair[0].replaceAll(' ', '');
+        final en = pair[1];
+        if (term.contains(jp) && cleanTitle.contains(en)) return true;
+      }
+      if ((term.contains('シングル') && cleanTitle.contains('single')) ||
+          (term.contains('アゲイン') && cleanTitle.contains('again')) ||
+          ((term.contains('プラスティック') || term.contains('プラスチック')) && cleanTitle.contains('plastic')) ||
+          (term.contains('ラブ') && cleanTitle.contains('love')) ||
+          (term.contains('サンセット') && cleanTitle.contains('sunset')) ||
+          (term.contains('ロード') && cleanTitle.contains('road'))) {
+        return true;
+      }
+    }
+    if (term == 'single' && cleanTitle.contains('シングル')) return true;
+    if (term == 'again' && cleanTitle.contains('アゲイン')) return true;
+    if (term == 'plastic' && (cleanTitle.contains('プラスティック') || cleanTitle.contains('プラスチック'))) return true;
+    if (term == 'love' && cleanTitle.contains('ラブ')) return true;
+    if (term == 'sunset' && cleanTitle.contains('サンセット')) return true;
+    if (term == 'road' && cleanTitle.contains('ロード')) return true;
     return false;
   }
 
@@ -106,6 +300,18 @@ class YouTubeMusicService {
     final lowerCh = channel.toLowerCase();
     final lowerTitle = title.toLowerCase();
     final lowerQuery = rawQuery.toLowerCase();
+
+    // 1. Cross-script Japanese/Latin pairs
+    for (final pair in japaneseArtistPairs) {
+      final latin = pair[0];
+      final kanji = pair[1];
+      if (lowerQuery.contains(latin) || lowerQuery.contains(kanji)) {
+        if (lowerCh.contains(latin) || lowerCh.contains(kanji) ||
+            lowerTitle.startsWith(latin) || lowerTitle.startsWith(kanji)) {
+          return true;
+        }
+      }
+    }
 
     final cleanCh = lowerCh
         .replaceAll('- topic', '')
@@ -176,7 +382,7 @@ class YouTubeMusicService {
         .toList();
 
     for (final w in queryWords) {
-      final inClean = cleanT.contains(w);
+      final inClean = titleMatchesTerm(cleanT, w);
       final inRaw = lowerRawTitle.contains(w);
       if (inClean || inRaw) {
         matchedTitleWords++;
@@ -213,6 +419,24 @@ class YouTubeMusicService {
     }
     if (!artistMatched) {
       score += 500;
+    }
+
+    // Check if title has "OtherArtist ft. TargetArtist" format (e.g. "2Pac ft. Mariya Takeuchi")
+    bool isFtLeadMismatch = false;
+    if (lowerRawTitle.contains(' - ')) {
+      final prefix = lowerRawTitle.split(' - ').first;
+      if (prefix.contains(' ft. ') ||
+          prefix.contains(' ft ') ||
+          prefix.contains(' feat. ') ||
+          prefix.contains(' feat ')) {
+        final ftSplit = prefix.split(' ft')[0].split(' feat')[0];
+        if (!queryWords.any((w) => ftSplit.contains(w))) {
+          isFtLeadMismatch = true;
+        }
+      }
+    }
+    if (isFtLeadMismatch) {
+      score += 400;
     }
 
     if (track.durationSeconds > 600) {
@@ -268,6 +492,11 @@ class YouTubeMusicService {
         final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
         final data = jsonDecode(decoded);
         final results = _parseYtmResponse(data);
+        // Strictly retain songs only, never mix in videos or karaoke derivatives
+        results.removeWhere((t) =>
+            t.extraData?['itemType'] != 'song' ||
+            isVideoRecord(t.title, t.artist) ||
+            _isKaraokeOrDerivative(t.title, t.artist, effectiveQuery));
         if (results.isNotEmpty) {
           final queryWords = cleanQuery
               .split(RegExp(r'\s+'))
@@ -338,7 +567,19 @@ class YouTubeMusicService {
                     ? thumbs.last['url']?.toString() ?? ''
                     : '';
 
-                if (vId.isNotEmpty && title.isNotEmpty && seen.add(vId)) {
+                final isTopic = rawChannel.toLowerCase().endsWith('- topic');
+                final isVideo = isVideoRecord(title, rawChannel);
+                final isKaraoke =
+                    _isKaraokeOrDerivative(title, rawChannel, effectiveQuery);
+                final artistMatches =
+                    _artistMatchesQuery(rawChannel, title, effectiveQuery);
+
+                if (vId.isNotEmpty &&
+                    title.isNotEmpty &&
+                    !isVideo &&
+                    !isKaraoke &&
+                    (isTopic || artistMatches) &&
+                    seen.add(vId)) {
                   tracks.add(Track(
                     id: vId,
                     title: TextEncodingUtils.cleanMojibake(title),
@@ -357,10 +598,94 @@ class YouTubeMusicService {
           }
         }
       }
+      if (tracks.isNotEmpty) {
+        final cleanQ = cleanTitleForMatching(effectiveQuery);
+        final queryWords = cleanQ.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+        if (queryWords.length >= 2) {
+          tracks.sort((a, b) => scoreSearchCandidate(a, queryWords, effectiveQuery)
+              .compareTo(scoreSearchCandidate(b, queryWords, effectiveQuery)));
+        }
+      }
       return tracks;
     } catch (_) {
       return [];
     }
+  }
+
+  /// Helper function to space out tracks by the same artist (at least 7 tracks apart),
+  /// mirroring nadanada's space_out_artist_tracks.
+  static List<Track> spaceOutArtistTracks(List<Track> tracks) {
+    if (tracks.isEmpty) return const [];
+    final spaced = <Track>[];
+    final pending = List<Track>.from(tracks);
+
+    spaced.add(pending.removeAt(0));
+
+    (String, String) getArtistInfo(Track t) {
+      final title = t.title.toLowerCase();
+      final channel = t.artist
+          .toLowerCase()
+          .replaceAll(' - topic', '')
+          .replaceAll('vevo', '')
+          .replaceAll('official', '')
+          .trim();
+      String titleArtist = '';
+      if (title.contains(' - ')) {
+        titleArtist = title.split(' - ')[0].trim();
+      } else if (title.contains(' ~ ')) {
+        titleArtist = title.split(' ~ ')[0].trim();
+      }
+      return (titleArtist, channel);
+    }
+
+    String clean(String s) =>
+        s.replaceAll(RegExp(r'[^a-zA-Z0-9\u3040-\u30ff\u4e00-\u9faf]'), '').toLowerCase();
+
+    bool checkPair(String a, String b) {
+      if (a.isEmpty || b.isEmpty) return false;
+      if (a == b) return true;
+      if (a.length > 3 && b.length > 3 && (a.contains(b) || b.contains(a))) return true;
+      return false;
+    }
+
+    bool isSameArtistInfo((String, String) a1, (String, String) a2) {
+      final ta1C = clean(a1.$1);
+      final ch1C = clean(a1.$2);
+      final ta2C = clean(a2.$1);
+      final ch2C = clean(a2.$2);
+
+      return checkPair(ta1C, ta2C) ||
+          checkPair(ch1C, ch2C) ||
+          checkPair(ta1C, ch2C) ||
+          checkPair(ch1C, ta2C);
+    }
+
+    while (pending.isNotEmpty) {
+      int foundIndex = 0;
+
+      for (int i = 0; i < pending.length; i++) {
+        final currentArtist = getArtistInfo(pending[i]);
+        bool recentConflict = false;
+
+        final checkLen = spaced.length < 7 ? spaced.length : 7;
+        for (int r = spaced.length - 1; r >= spaced.length - checkLen; r--) {
+          final recentArtist = getArtistInfo(spaced[r]);
+          if (isSameArtistInfo(currentArtist, recentArtist)) {
+            recentConflict = true;
+            break;
+          }
+        }
+
+        if (!recentConflict) {
+          foundIndex = i;
+          break;
+        }
+      }
+
+      spaced.add(pending.removeAt(foundIndex));
+    }
+
+    return spaced;
   }
 
   /// Fetches Endless Play (Radio Mode) matching tracks from YouTube Music
@@ -419,7 +744,10 @@ class YouTubeMusicService {
                   ? thumbs.last['url']?.toString() ?? ''
                   : '';
 
-              if (vId.isNotEmpty && title.isNotEmpty && vId != videoId) {
+              final isTopic = rawArtist.toLowerCase().endsWith('- topic');
+              final isVideo = isVideoRecord(title, rawArtist);
+
+              if (vId.isNotEmpty && title.isNotEmpty && vId != videoId && (!isVideo || isTopic)) {
                 tracks.add(Track(
                   id: vId,
                   title: TextEncodingUtils.cleanMojibake(title),
@@ -438,7 +766,7 @@ class YouTubeMusicService {
         }
       }
 
-      return tracks;
+      return spaceOutArtistTracks(tracks);
     } catch (_) {
       return [];
     }
@@ -513,6 +841,22 @@ class YouTubeMusicService {
       String album = '';
 
       if (flex1 != null && flex1 is List) {
+        for (final run in flex1) {
+          final pageType = run['navigationEndpoint']
+              ?['browseEndpoint']
+              ?['browseEndpointContextSupportedConfigs']
+              ?['browseEndpointContextMusicConfig']
+              ?['pageType']
+              ?.toString();
+          if (pageType == 'MUSIC_PAGE_TYPE_ALBUM') {
+            final txt = run['text']?.toString().trim();
+            if (txt != null && txt.isNotEmpty) {
+              album = txt;
+              break;
+            }
+          }
+        }
+
         final List<String> texts = flex1
             .map((r) => r['text']?.toString() ?? '')
             .where((t) => t.isNotEmpty)
@@ -532,12 +876,12 @@ class YouTubeMusicService {
           final first = parts.first.trim();
           if (first.toLowerCase() == 'song') {
             if (parts.length > 1) artist = parts[1].trim();
-            if (parts.length > 2 && !parts[2].contains(':')) {
+            if (album.isEmpty && parts.length > 2 && !parts[2].contains(':')) {
               album = parts[2].trim();
             }
           } else {
             artist = first;
-            if (parts.length > 1 && !parts[1].contains(':')) {
+            if (album.isEmpty && parts.length > 1 && !parts[1].contains(':')) {
               album = parts[1].trim();
             }
           }
@@ -556,9 +900,13 @@ class YouTubeMusicService {
         }
       }
 
+      final rawArtist = artist;
       artist = artist
           .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
           .trim();
+
+      final isVideo = isVideoRecord(title, rawArtist) && !rawArtist.toLowerCase().endsWith('- topic');
+      final itemType = isVideo ? 'video' : 'song';
 
       final thumbs = item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
           ?['thumbnails'];
@@ -578,7 +926,7 @@ class YouTubeMusicService {
         youtubeVideoId: videoId,
         audioSource: 'youtube',
         isLossless: false,
-        extraData: const {'itemType': 'song'},
+        extraData: {'itemType': itemType},
       );
     } catch (_) {
       return null;
