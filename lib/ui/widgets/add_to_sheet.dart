@@ -69,7 +69,7 @@ Future<void> showCreatePlaylistDialog(
                 Navigator.pop(dialogCtx);
                 showImportPlaylistSheet(context);
               },
-              icon: const Icon(Icons.link_rounded, size: 16),
+              icon: const Icon(Icons.download_rounded, size: 16),
               label: const Text('Import', style: TextStyle(fontSize: 12)),
             ),
           ],

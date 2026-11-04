@@ -58,7 +58,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.link_rounded, size: 24),
+                        icon: const Icon(Icons.download_rounded, size: 24),
                         tooltip: 'Import Playlist (YouTube / Spotify)',
                         onPressed: () => showImportPlaylistSheet(context),
                       ),
@@ -778,7 +778,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       const SizedBox(width: 10),
                       OutlinedButton.icon(
                         onPressed: () => showImportPlaylistSheet(context),
-                        icon: const Icon(Icons.link_rounded, size: 18),
+                        icon: const Icon(Icons.download_rounded, size: 18),
                         label: const Text(
                           'Import',
                           style: TextStyle(fontWeight: FontWeight.w700),

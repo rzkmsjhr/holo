@@ -190,7 +190,7 @@ class _ImportPlaylistSheetState extends State<ImportPlaylistSheet> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: const Icon(
-                      Icons.link_rounded,
+                      Icons.download_rounded,
                       color: Colors.white,
                       size: 22,
                     ),
