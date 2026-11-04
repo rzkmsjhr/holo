@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/widgets.dart';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 
 enum ConnectivityStatus {
   online,
@@ -96,7 +96,7 @@ class ConnectivityService with WidgetsBindingObserver {
     bool reachable = false;
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .get(Uri.parse(_primaryPingUrl))
           .timeout(_pingTimeout);
       sw.stop();
@@ -106,7 +106,7 @@ class ConnectivityService with WidgetsBindingObserver {
       }
     } catch (_) {
       try {
-        final res = await http
+        final res = await HoloHttpClient.client
             .get(Uri.parse(_secondaryPingUrl))
             .timeout(_pingTimeout);
         sw.stop();
@@ -115,7 +115,7 @@ class ConnectivityService with WidgetsBindingObserver {
         }
       } catch (_) {
         try {
-          final res = await http
+          final res = await HoloHttpClient.client
               .get(Uri.parse(
                   'https://cloudflare-dns.com/dns-query?name=google.com&type=A'))
               .timeout(_pingTimeout);

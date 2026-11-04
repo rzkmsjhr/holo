@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
@@ -25,6 +25,17 @@ class YouTubeMusicService {
           'Origin': 'https://music.youtube.com',
         },
       };
+
+  static final Map<String, (DateTime, List<Track>)> _searchCache = {};
+  static final Map<String, Future<List<Track>>> _inFlightSearch = {};
+  static final Map<String, (DateTime, List<Track>)> _relatedCache = {};
+  static final Map<String, Future<List<Track>>> _inFlightRelated = {};
+
+  static final RegExp _wordCharRegex = RegExp(
+      r'[a-zA-Z0-9\u00C0-\u024F\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]');
+  static final RegExp _multiSpaceRegex = RegExp(r'\s+');
+  static final RegExp _topicRegex =
+      RegExp(r'\s*-\s*topic$', caseSensitive: false);
 
   static const Set<String> _titleStopwords = {
     'no', 'oh', 'to', 'in', 'on', 'at', 'of', 'me', 'my', 'is', 'it',
@@ -63,15 +74,14 @@ class YouTubeMusicService {
       } else if (c == ')' || c == ']' || c == '）' || c == '】') {
         if (depth > 0) depth--;
       } else if (depth == 0) {
-        if (RegExp(r'[a-zA-Z0-9\u00C0-\u024F\u3040-\u30ff\u4e00-\u9faf\uac00-\ud7af]')
-            .hasMatch(c)) {
+        if (_wordCharRegex.hasMatch(c)) {
           buf.write(c);
         } else {
           buf.write(' ');
         }
       }
     }
-    return buf.toString().toLowerCase().replaceAll(RegExp(r'\s+'), ' ').trim();
+    return buf.toString().toLowerCase().replaceAll(_multiSpaceRegex, ' ').trim();
   }
 
   static bool _isKaraokeOrDerivative(String title, String channel, String rawQuery) {
@@ -242,6 +252,36 @@ class YouTubeMusicService {
             : query.trim();
     if (effectiveQuery.isEmpty) return [];
 
+    final cacheKey = effectiveQuery.toLowerCase();
+    final cached = _searchCache[cacheKey];
+    if (cached != null &&
+        DateTime.now().difference(cached.$1) < const Duration(minutes: 5)) {
+      return cached.$2;
+    }
+
+    if (_inFlightSearch.containsKey(cacheKey)) {
+      return _inFlightSearch[cacheKey]!;
+    }
+
+    final future = _executeSearchSongs(effectiveQuery, cleanQuery, query);
+    _inFlightSearch[cacheKey] = future;
+    try {
+      final res = await future;
+      _searchCache[cacheKey] = (DateTime.now(), res);
+      if (_searchCache.length > 200) {
+        _searchCache.remove(_searchCache.keys.first);
+      }
+      return res;
+    } finally {
+      _inFlightSearch.remove(cacheKey);
+    }
+  }
+
+  Future<List<Track>> _executeSearchSongs(
+    String effectiveQuery,
+    String cleanQuery,
+    String originalQuery,
+  ) async {
     final payload = {
       'context': {
         'client': {
@@ -256,7 +296,7 @@ class YouTubeMusicService {
     };
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeSearchUrl),
             headers: _requestHeaders,
@@ -270,12 +310,14 @@ class YouTubeMusicService {
         final results = _parseYtmResponse(data);
         if (results.isNotEmpty) {
           final queryWords = cleanQuery
-              .split(RegExp(r'\s+'))
+              .split(_multiSpaceRegex)
               .where((w) => w.isNotEmpty)
               .toList();
           if (queryWords.length >= 2) {
-            results.sort((a, b) => scoreSearchCandidate(a, queryWords, query)
-                .compareTo(scoreSearchCandidate(b, queryWords, query)));
+            results.sort((a, b) => scoreSearchCandidate(
+                    a, queryWords, originalQuery)
+                .compareTo(
+                    scoreSearchCandidate(b, queryWords, originalQuery)));
           }
           return results;
         }
@@ -290,7 +332,7 @@ class YouTubeMusicService {
   Future<List<Track>> _searchTopicFallback(String effectiveQuery) async {
     final topicQuery = '$effectiveQuery topic';
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_ytWebSearchUrl),
             headers: {'Content-Type': 'application/json'},
@@ -329,7 +371,7 @@ class YouTubeMusicService {
                 final rawChannel =
                     video['ownerText']?['runs']?[0]?['text']?.toString() ?? '';
                 final cleanArtist = rawChannel
-                    .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
+                    .replaceAll(_topicRegex, '')
                     .trim();
                 final durStr =
                     video['lengthText']?['simpleText']?.toString() ?? '';
@@ -365,6 +407,34 @@ class YouTubeMusicService {
 
   /// Fetches Endless Play (Radio Mode) matching tracks from YouTube Music
   Future<List<Track>> getRelatedTracks(String videoId) async {
+    final cleanId = videoId.trim();
+    if (cleanId.isEmpty) return [];
+
+    final cached = _relatedCache[cleanId];
+    if (cached != null &&
+        DateTime.now().difference(cached.$1) < const Duration(minutes: 5)) {
+      return cached.$2;
+    }
+
+    if (_inFlightRelated.containsKey(cleanId)) {
+      return _inFlightRelated[cleanId]!;
+    }
+
+    final future = _executeGetRelatedTracks(cleanId);
+    _inFlightRelated[cleanId] = future;
+    try {
+      final res = await future;
+      _relatedCache[cleanId] = (DateTime.now(), res);
+      if (_relatedCache.length > 100) {
+        _relatedCache.remove(_relatedCache.keys.first);
+      }
+      return res;
+    } finally {
+      _inFlightRelated.remove(cleanId);
+    }
+  }
+
+  Future<List<Track>> _executeGetRelatedTracks(String videoId) async {
     final payload = {
       'context': {
         'client': {
@@ -380,7 +450,7 @@ class YouTubeMusicService {
     };
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeNextUrl),
             headers: _requestHeaders,

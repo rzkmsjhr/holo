@@ -27,7 +27,13 @@ class AppColors {
 }
 
 class AppTheme {
-  static ThemeData darkTheme() {
+  static final ThemeData _dark = _buildDarkTheme();
+  static final ThemeData _light = _buildLightTheme();
+
+  static ThemeData darkTheme() => _dark;
+  static ThemeData lightTheme() => _light;
+
+  static ThemeData _buildDarkTheme() {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.dark,
@@ -72,7 +78,7 @@ class AppTheme {
     );
   }
 
-  static ThemeData lightTheme() {
+  static ThemeData _buildLightTheme() {
     return ThemeData(
       useMaterial3: true,
       brightness: Brightness.light,

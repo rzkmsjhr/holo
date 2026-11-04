@@ -44,6 +44,8 @@ class PlayerProvider extends ChangeNotifier {
   bool _isUsingYtIframe = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier(Duration.zero);
+  final ValueNotifier<int> debugLogsVersion = ValueNotifier(0);
   List<Track> _queue = [];
   List<Track>? _recentlyPlayed = [];
   List<DailyMix>? _dailyMixes = [];
@@ -108,7 +110,7 @@ class PlayerProvider extends ChangeNotifier {
       _debugLogs.removeAt(0);
     }
     debugPrint(entry);
-    notifyListeners();
+    debugLogsVersion.value++;
   }
 
   // Getters
@@ -211,13 +213,18 @@ class PlayerProvider extends ChangeNotifier {
     _initHifiMatcher();
     _initFlacCache();
     _initSavedPlayerState();
-    _initTasteAndMixes();
-    _initTrending();
     _initPlaylists();
-    _initArtworkService();
     _initLikedTracks();
+
+    // Stagger background network & heavy indexing tasks after initial frame render
+    _startupTimer = Timer(const Duration(milliseconds: 350), () {
+      _initTasteAndMixes();
+      _initTrending();
+      _initArtworkService();
+    });
   }
 
+  Timer? _startupTimer;
   final Set<String> _preResolvingIds = {};
   int _lastNotifiedSec = -1;
 
@@ -347,11 +354,12 @@ class PlayerProvider extends ChangeNotifier {
     _posSub = _audioPlayer.positionStream.listen((pos) {
       if (_isUsingYtIframe) return;
       _position = pos;
+      positionNotifier.value = pos;
       if (pos.inSeconds != _lastNotifiedSec) {
         _lastNotifiedSec = pos.inSeconds;
         _syncNotificationPlaybackState();
+        notifyListeners();
       }
-      notifyListeners();
     });
 
     _durSub = _audioPlayer.durationStream.listen((dur) {
@@ -392,7 +400,11 @@ class PlayerProvider extends ChangeNotifier {
     _ytPosSub = _ytIframeBridge.positionStream.listen((pos) {
       if (!_isUsingYtIframe) return;
       _position = pos;
-      notifyListeners();
+      positionNotifier.value = pos;
+      if (pos.inSeconds != _lastNotifiedSec) {
+        _lastNotifiedSec = pos.inSeconds;
+        notifyListeners();
+      }
     });
 
     _ytDurSub = _ytIframeBridge.durationStream.listen((dur) {
@@ -523,11 +535,13 @@ class PlayerProvider extends ChangeNotifier {
         _currentTrack = track;
         _duration = Duration(seconds: track.durationSeconds);
         _position = Duration.zero;
+        positionNotifier.value = Duration.zero;
         _isPlaying = false;
       } else if (_queue.isNotEmpty && _currentIndex < _queue.length) {
         _currentTrack = _queue[_currentIndex];
         _duration = Duration(seconds: _currentTrack!.durationSeconds);
         _position = Duration.zero;
+        positionNotifier.value = Duration.zero;
         _isPlaying = false;
       }
 
@@ -535,28 +549,32 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _persistPlayerState() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
+  Timer? _persistDebounce;
+  void _persistPlayerState() {
+    _persistDebounce?.cancel();
+    _persistDebounce = Timer(const Duration(milliseconds: 400), () async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
 
-      // 1. Save recently played
-      if (_recentlyPlayed != null) {
-        final recentList = _recentlyPlayed!.map((t) => t.toJson()).toList();
-        await prefs.setString(_recentlyPlayedKey, jsonEncode(recentList));
-      }
+        // 1. Save recently played
+        if (_recentlyPlayed != null) {
+          final recentList = _recentlyPlayed!.map((t) => t.toJson()).toList();
+          await prefs.setString(_recentlyPlayedKey, jsonEncode(recentList));
+        }
 
-      // 2. Save queue and index
-      if (_queue.isNotEmpty) {
-        final queueList = _queue.map((t) => t.toJson()).toList();
-        await prefs.setString(_lastQueueKey, jsonEncode(queueList));
-        await prefs.setInt(_lastIndexKey, _currentIndex);
-      }
+        // 2. Save queue and index
+        if (_queue.isNotEmpty) {
+          final queueList = _queue.map((t) => t.toJson()).toList();
+          await prefs.setString(_lastQueueKey, jsonEncode(queueList));
+          await prefs.setInt(_lastIndexKey, _currentIndex);
+        }
 
-      // 3. Save current track
-      if (_currentTrack != null) {
-        await prefs.setString(_lastTrackKey, jsonEncode(_currentTrack!.toJson()));
-      }
-    } catch (_) {}
+        // 3. Save current track
+        if (_currentTrack != null) {
+          await prefs.setString(_lastTrackKey, jsonEncode(_currentTrack!.toJson()));
+        }
+      } catch (_) {}
+    });
   }
 
   void _addToRecentlyPlayed(Track track) {
@@ -865,6 +883,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> refreshDailyMixes() async {
+    if (_isLoadingMixes == true) return;
     _isLoadingMixes = true;
     notifyListeners();
     try {
@@ -879,6 +898,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> loadTrending() async {
+    if (_isLoadingTrending == true) return;
     _isLoadingTrending = true;
     notifyListeners();
     try {
@@ -1057,6 +1077,7 @@ class PlayerProvider extends ChangeNotifier {
     _triggerEndlessPlayIfNeeded();
     _duration = Duration(seconds: sanitizedTrack.durationSeconds);
     _position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     _isBuffering = true;
 
     _syncNotificationMediaItem(sanitizedTrack);
@@ -1712,11 +1733,14 @@ class PlayerProvider extends ChangeNotifier {
     } catch (_) {}
     _isPlaying = false;
     _isBuffering = false;
+    _position = Duration.zero;
+    positionNotifier.value = Duration.zero;
     notifyListeners();
   }
 
   Future<void> seekTo(Duration position) async {
     _position = position;
+    positionNotifier.value = position;
     notifyListeners();
     if (_isUsingYtIframe) {
       _ytIframeBridge.seekTo(position);
@@ -1908,6 +1932,10 @@ class PlayerProvider extends ChangeNotifier {
 
   @override
   void dispose() {
+    _startupTimer?.cancel();
+    _persistDebounce?.cancel();
+    positionNotifier.dispose();
+    debugLogsVersion.dispose();
     _posSub?.cancel();
     _durSub?.cancel();
     _stateSub?.cancel();

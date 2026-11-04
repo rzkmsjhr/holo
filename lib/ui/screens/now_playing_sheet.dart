@@ -116,41 +116,47 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
               ),
               const Divider(color: Colors.white12),
               Expanded(
-                child: player.debugLogs.isEmpty
-                    ? const Center(
+                child: ValueListenableBuilder<int>(
+                  valueListenable: player.debugLogsVersion,
+                  builder: (context, _, __) {
+                    if (player.debugLogs.isEmpty) {
+                      return const Center(
                         child: Text(
                           'No logs recorded yet. Play a song to record stream events.',
                           style: TextStyle(color: Colors.white54, fontSize: 13),
                         ),
-                      )
-                    : ListView.builder(
-                        itemCount: player.debugLogs.length,
-                        itemBuilder: (context, i) {
-                          final log = player.debugLogs[i];
-                          final isErr = log.contains('error') ||
-                              log.contains('failed') ||
-                              log.contains('FAILURE') ||
-                              log.contains('403') ||
-                              log.contains('Exception');
-                          final isSuccess = log.contains('SUCCESS') || log.contains('succeeded');
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 2.5),
-                            child: Text(
-                              log,
-                              style: TextStyle(
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                                height: 1.3,
-                                color: isErr
-                                    ? const Color(0xFFF87171)
-                                    : (isSuccess
-                                        ? const Color(0xFF4ADE80)
-                                        : Colors.white70),
-                              ),
+                      );
+                    }
+                    return ListView.builder(
+                      itemCount: player.debugLogs.length,
+                      itemBuilder: (context, i) {
+                        final log = player.debugLogs[i];
+                        final isErr = log.contains('error') ||
+                            log.contains('failed') ||
+                            log.contains('FAILURE') ||
+                            log.contains('403') ||
+                            log.contains('Exception');
+                        final isSuccess = log.contains('SUCCESS') || log.contains('succeeded');
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 2.5),
+                          child: Text(
+                            log,
+                            style: TextStyle(
+                              fontFamily: 'monospace',
+                              fontSize: 11,
+                              height: 1.3,
+                              color: isErr
+                                  ? const Color(0xFFF87171)
+                                  : (isSuccess
+                                      ? const Color(0xFF4ADE80)
+                                      : Colors.white70),
                             ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -484,28 +490,33 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                   child: Stack(
                     children: [
                     // 1. Full Player View (Fades out and translates slightly up)
-                    Opacity(
-                      opacity: (1.0 - t).clamp(0.0, 1.0),
-                      child: Transform.translate(
-                        offset: Offset(0, -50 * t),
-                        child: IgnorePointer(
-                          ignoring: t > 0.5,
-                          child: _buildFullPlayer(
-                              context, player, track, isDark),
+                    if (t < 0.99)
+                      RepaintBoundary(
+                        child: Opacity(
+                          opacity: (1.0 - t).clamp(0.0, 1.0),
+                          child: Transform.translate(
+                            offset: Offset(0, -50 * t),
+                            child: IgnorePointer(
+                              ignoring: t > 0.5,
+                              child: _buildFullPlayer(
+                                  context, player, track, isDark),
+                            ),
+                          ),
                         ),
                       ),
-                    ),
 
                     // 2. Full Scrollable Lyrics View (Fades in and slides up from bottom)
                     if (t > 0.01)
-                      Opacity(
-                        opacity: t.clamp(0.0, 1.0),
-                        child: Transform.translate(
-                          offset: Offset(0, 40 * (1.0 - t)),
-                          child: IgnorePointer(
-                            ignoring: t < 0.5,
-                            child: _buildLyricsView(player, isDark,
-                                activeLyricIndex, screenHeight),
+                      RepaintBoundary(
+                        child: Opacity(
+                          opacity: t.clamp(0.0, 1.0),
+                          child: Transform.translate(
+                            offset: Offset(0, 40 * (1.0 - t)),
+                            child: IgnorePointer(
+                              ignoring: t < 0.5,
+                              child: _buildLyricsView(player, isDark,
+                                  activeLyricIndex, screenHeight),
+                            ),
                           ),
                         ),
                       ),
@@ -516,10 +527,12 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                         top: 10,
                         left: 14,
                         right: 14,
-                        child: Transform.translate(
-                          offset: Offset(0, -20 * (1.0 - t)),
-                          child: _buildFrostedGlassTopBar(
-                              player, track, isDark, t),
+                        child: RepaintBoundary(
+                          child: Transform.translate(
+                            offset: Offset(0, -20 * (1.0 - t)),
+                            child: _buildFrostedGlassTopBar(
+                                player, track, isDark, t),
+                          ),
                         ),
                       ),
                   ],
@@ -536,10 +549,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   // --- FULL PLAYER VIEW ---
   Widget _buildFullPlayer(
       BuildContext context, PlayerProvider player, Track track, bool isDark) {
-    final remaining = (player.duration - player.position);
-    final remainingStr =
-        '-${_formatDuration(remaining.isNegative ? Duration.zero : remaining)}';
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onHorizontalDragEnd: (details) {
@@ -618,7 +627,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                             ? track.thumbnailUrl
                                             : null));
 
-                                if (cachedArt == null || cachedArt.isEmpty) {
+                                final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                                    !track.thumbnailUrl.contains('unsplash.com');
+                                if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                   player.resolveArtworkFor(track.artist, track.title);
                                 }
 
@@ -638,7 +649,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                     return HoloImage(
                                       'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
-                                      filterQuality: FilterQuality.high,
                                       errorBuilder: (_, __, ___) =>
                                           placeholderIcon(),
                                     );
@@ -652,7 +662,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                     return HoloImage(
                                       track.thumbnailUrl,
                                       fit: BoxFit.cover,
-                                      filterQuality: FilterQuality.high,
                                       errorBuilder: (_, __, ___) =>
                                           buildYtFallback(),
                                     );
@@ -664,7 +673,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                   return HoloImage(
                                     art,
                                     fit: BoxFit.cover,
-                                    filterQuality: FilterQuality.high,
                                     errorBuilder: (_, __, ___) =>
                                         buildThumbFallback(),
                                   );
@@ -749,7 +757,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 borderRadius: BorderRadius.circular(22),
                                 child: BackdropFilter(
                                   filter:
-                                      ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                                      ImageFilter.blur(sigmaX: 12, sigmaY: 12),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
                                         horizontal: 8, vertical: 4),
@@ -1054,64 +1062,76 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                         ),
                         const SizedBox(height: 6),
 
-                        // Draggable Scrubber Timeline
-                        SliderTheme(
-                          data: SliderTheme.of(context).copyWith(
-                            trackHeight: 5,
-                            thumbShape: const RoundSliderThumbShape(
-                                enabledThumbRadius: 7),
-                            overlayShape: const RoundSliderOverlayShape(
-                                overlayRadius: 14),
-                            activeTrackColor: AppColors.primary,
-                            inactiveTrackColor: isDark
-                                ? AppColors.darkBorder
-                                : AppColors.lightBorder,
-                            thumbColor: Colors.white,
-                          ),
-                          child: Slider(
-                            value: player.position.inSeconds
+                        // Draggable Scrubber Timeline & Timestamps
+                        ValueListenableBuilder<Duration>(
+                          valueListenable: player.positionNotifier,
+                          builder: (context, pos, _) {
+                            final durSec = player.duration.inSeconds.toDouble();
+                            final posSec = pos.inSeconds
                                 .toDouble()
-                                .clamp(
-                                    0.0,
-                                    player.duration.inSeconds.toDouble()),
-                            max: player.duration.inSeconds.toDouble() > 0
-                                ? player.duration.inSeconds.toDouble()
-                                : 1.0,
-                            onChanged: (val) {
-                              player.seekTo(Duration(seconds: val.toInt()));
-                            },
-                          ),
-                        ),
+                                .clamp(0.0, durSec > 0 ? durSec : 1.0);
+                            final rem = player.duration - pos;
+                            final remStr =
+                                '-${_formatDuration(rem.isNegative ? Duration.zero : rem)}';
 
-                        // Elapsed & Remaining Timestamps
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                _formatDuration(player.position),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? AppColors.darkTextTertiary
-                                      : AppColors.lightTextTertiary,
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                SliderTheme(
+                                  data: SliderTheme.of(context).copyWith(
+                                    trackHeight: 5,
+                                    thumbShape: const RoundSliderThumbShape(
+                                        enabledThumbRadius: 7),
+                                    overlayShape: const RoundSliderOverlayShape(
+                                        overlayRadius: 14),
+                                    activeTrackColor: AppColors.primary,
+                                    inactiveTrackColor: isDark
+                                        ? AppColors.darkBorder
+                                        : AppColors.lightBorder,
+                                    thumbColor: Colors.white,
+                                  ),
+                                  child: Slider(
+                                    value: posSec,
+                                    max: durSec > 0 ? durSec : 1.0,
+                                    onChanged: (val) {
+                                      player.seekTo(Duration(seconds: val.toInt()));
+                                    },
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                remainingStr,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: isDark
-                                      ? AppColors.darkTextTertiary
-                                      : AppColors.lightTextTertiary,
+
+                                // Elapsed & Remaining Timestamps
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                                  child: Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Text(
+                                        _formatDuration(pos),
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark
+                                              ? AppColors.darkTextTertiary
+                                              : AppColors.lightTextTertiary,
+                                        ),
+                                      ),
+                                      Text(
+                                        remStr,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w600,
+                                          color: isDark
+                                              ? AppColors.darkTextTertiary
+                                              : AppColors.lightTextTertiary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
-                          ),
+                              ],
+                            );
+                          },
                         ),
                         const SizedBox(height: 6),
 
@@ -1372,11 +1392,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
   // --- FROSTED GLASS TOP BAR CONTAINER ---
   Widget _buildFrostedGlassTopBar(
       PlayerProvider player, Track track, bool isDark, double t) {
-    final progress = player.duration.inMilliseconds > 0
-        ? (player.position.inMilliseconds / player.duration.inMilliseconds)
-            .clamp(0.0, 1.0)
-        : 0.0;
-
     return GestureDetector(
       onVerticalDragEnd: (details) {
         if (details.primaryVelocity != null &&
@@ -1399,7 +1414,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
         child: ClipRRect(
           borderRadius: BorderRadius.circular(20),
           child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
             child: Container(
               decoration: BoxDecoration(
                 color: isDark
@@ -1467,7 +1482,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                     return HoloImage(
                                       'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                       fit: BoxFit.cover,
-                                      filterQuality: FilterQuality.high,
                                       errorBuilder: (_, __, ___) =>
                                           placeholderIcon(),
                                     );
@@ -1481,7 +1495,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                     return HoloImage(
                                       track.thumbnailUrl,
                                       fit: BoxFit.cover,
-                                      filterQuality: FilterQuality.high,
                                       errorBuilder: (_, __, ___) =>
                                           buildYtFallback(),
                                     );
@@ -1493,7 +1506,6 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                   return HoloImage(
                                     art,
                                     fit: BoxFit.cover,
-                                    filterQuality: FilterQuality.high,
                                     errorBuilder: (_, __, ___) =>
                                         buildThumbFallback(),
                                   );
@@ -1618,11 +1630,21 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                           ? Colors.white.withValues(alpha: 0.08)
                           : Colors.black.withValues(alpha: 0.06),
                       alignment: Alignment.centerLeft,
-                      child: FractionallySizedBox(
-                        widthFactor: progress,
-                        child: Container(
-                          color: AppColors.primary,
-                        ),
+                      child: ValueListenableBuilder<Duration>(
+                        valueListenable: player.positionNotifier,
+                        builder: (context, pos, _) {
+                          final progress = player.duration.inMilliseconds > 0
+                              ? (pos.inMilliseconds /
+                                      player.duration.inMilliseconds)
+                                  .clamp(0.0, 1.0)
+                              : 0.0;
+                          return FractionallySizedBox(
+                            widthFactor: progress,
+                            child: Container(
+                              color: AppColors.primary,
+                            ),
+                          );
+                        },
                       ),
                     ),
                   ],

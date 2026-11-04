@@ -1334,7 +1334,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                             ? track.thumbnailUrl
                                             : null));
 
-                                if (cachedArt == null || cachedArt.isEmpty) {
+                                final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                                    !track.thumbnailUrl.contains('unsplash.com');
+                                if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                   player.resolveArtworkFor(
                                       track.artist, track.title);
                                 }

@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
@@ -18,7 +18,7 @@ class KuwoService {
     if (clean.isEmpty) return [];
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(searchUrl),
             headers: {
@@ -115,7 +115,7 @@ class KuwoService {
       final body =
           'platform=kuwo&songid=${Uri.encodeComponent(songId)}&format=flac&bitrate=${Uri.encodeComponent(bitrate)}&time=${Uri.encodeComponent(timeStr)}&sign=${Uri.encodeComponent(sign)}';
 
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(getUrlEndpoint),
             headers: {

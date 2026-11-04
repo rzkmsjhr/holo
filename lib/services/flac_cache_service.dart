@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
+import '../core/network/holo_http_client.dart';
 
 class FlacCacheService {
   static final FlacCacheService _instance = FlacCacheService._internal();
@@ -69,7 +70,7 @@ class FlacCacheService {
       final req = http.Request('GET', Uri.parse(streamUrl));
       req.headers['User-Agent'] =
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
-      final response = await req.send().timeout(const Duration(seconds: 15));
+      final response = await HoloHttpClient.client.send(req).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200 || response.statusCode == 206) {
         final sink = tempFile.openWrite();

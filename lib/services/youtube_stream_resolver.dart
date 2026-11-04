@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import '../core/network/holo_http_client.dart';
 
 class StreamResolutionResult {
   final String? url;
@@ -170,7 +170,7 @@ class YouTubeStreamResolver {
           if (!kIsWeb && clientName == 'ANDROID') 'User-Agent': _androidUserAgent,
         };
 
-        final response = await http
+        final response = await HoloHttpClient.client
             .post(
               Uri.parse(_innertubePlayerUrl),
               headers: headers,
@@ -309,7 +309,7 @@ class YouTubeStreamResolver {
           'Referer': 'https://music.youtube.com/',
         },
       };
-      final ytmResponse = await http
+      final ytmResponse = await HoloHttpClient.client
           .post(
             Uri.parse(_ytmSearchUrl),
             headers: ytmHeaders,
@@ -355,7 +355,7 @@ class YouTubeStreamResolver {
       final headers = <String, String>{
         'Content-Type': 'application/json',
       };
-      final response = await http
+      final response = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeSearchUrl),
             headers: headers,

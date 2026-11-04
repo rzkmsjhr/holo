@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
+import '../core/network/holo_http_client.dart';
 import '../core/utils/text_encoding_utils.dart';
 
 class LyricLine {
@@ -527,7 +527,7 @@ class LyricsService {
     final uri = Uri.parse('$_lrclibSearchUrl?q=${Uri.encodeQueryComponent(query)}');
 
     try {
-      final res = await http.get(uri, headers: {
+      final res = await HoloHttpClient.client.get(uri, headers: {
         'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
       }).timeout(const Duration(seconds: 6));
 
@@ -613,7 +613,7 @@ class LyricsService {
     final uri = Uri.parse(_lrclibGetUrl).replace(queryParameters: queryParams);
 
     try {
-      final res = await http.get(uri, headers: {
+      final res = await HoloHttpClient.client.get(uri, headers: {
         'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
       }).timeout(const Duration(seconds: 6));
 

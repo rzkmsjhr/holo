@@ -23,12 +23,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        final player = context.read<PlayerProvider>();
-        player.loadTrending();
-      }
-    });
   }
 
   @override
@@ -334,7 +328,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ? track.thumbnailUrl
                                 : null));
 
-                    if (cachedArt == null || cachedArt.isEmpty) {
+                    final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                        !track.thumbnailUrl.contains('unsplash.com');
+                    if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                       player.resolveArtworkFor(track.artist, track.title);
                     }
 
@@ -731,7 +727,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                           ? track.thumbnailUrl
                                           : null));
 
-                              if (cachedArt == null || cachedArt.isEmpty) {
+                              final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                                  !track.thumbnailUrl.contains('unsplash.com');
+                              if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                 player.resolveArtworkFor(
                                     track.artist, track.title);
                               }
@@ -1205,7 +1203,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? cachedArt
                         : (validThumb ? rawThumb : null);
 
-                    if (cachedArt == null || cachedArt.isEmpty) {
+                    if ((cachedArt == null || cachedArt.isEmpty) && !validThumb) {
                       player.resolveArtworkFor(
                           item.artist, item.title, item.rank > 50);
                     }

@@ -190,7 +190,9 @@ class QueueScreen extends StatelessWidget {
                                               ? currentTrack.thumbnailUrl
                                               : null));
 
-                                  if (cachedArt == null || cachedArt.isEmpty) {
+                                  final hasValidThumb = currentTrack.thumbnailUrl.isNotEmpty &&
+                                      !currentTrack.thumbnailUrl.contains('unsplash.com');
+                                  if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                     player.resolveArtworkFor(
                                         currentTrack.artist, currentTrack.title);
                                   }
@@ -424,7 +426,9 @@ class QueueScreen extends StatelessWidget {
                                                     ? track.thumbnailUrl
                                                     : null));
 
-                                        if (cachedArt == null || cachedArt.isEmpty) {
+                                        final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                                            !track.thumbnailUrl.contains('unsplash.com');
+                                        if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                           player.resolveArtworkFor(
                                               track.artist, track.title);
                                         }

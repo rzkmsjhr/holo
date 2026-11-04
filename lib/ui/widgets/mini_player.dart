@@ -15,10 +15,6 @@ class MiniPlayer extends StatelessWidget {
     if (track == null) return const SizedBox.shrink();
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final progress = player.duration.inMilliseconds > 0
-        ? (player.position.inMilliseconds / player.duration.inMilliseconds)
-            .clamp(0.0, 1.0)
-        : 0.0;
 
     return GestureDetector(
       onTap: () {
@@ -89,7 +85,9 @@ class MiniPlayer extends StatelessWidget {
                                       ? track.thumbnailUrl
                                       : null));
 
-                          if (cachedArt == null || cachedArt.isEmpty) {
+                          final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
+                              !track.thumbnailUrl.contains('unsplash.com');
+                          if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                             player.resolveArtworkFor(track.artist, track.title);
                           }
 
@@ -106,7 +104,6 @@ class MiniPlayer extends StatelessWidget {
                               return HoloImage(
                                 'https://i.ytimg.com/vi/$vid/hqdefault.jpg',
                                 fit: BoxFit.cover,
-                                filterQuality: FilterQuality.high,
                                 errorBuilder: (_, __, ___) => placeholderIcon(),
                               );
                             }
@@ -119,7 +116,6 @@ class MiniPlayer extends StatelessWidget {
                               return HoloImage(
                                 track.thumbnailUrl,
                                 fit: BoxFit.cover,
-                                filterQuality: FilterQuality.high,
                                 errorBuilder: (_, __, ___) => buildYtFallback(),
                               );
                             }
@@ -130,7 +126,6 @@ class MiniPlayer extends StatelessWidget {
                             return HoloImage(
                               art,
                               fit: BoxFit.cover,
-                              filterQuality: FilterQuality.high,
                               errorBuilder: (_, __, ___) =>
                                   buildThumbFallback(),
                             );
@@ -263,15 +258,24 @@ class MiniPlayer extends StatelessWidget {
                 left: 10,
                 right: 10,
                 bottom: 0,
-                child: LinearProgressIndicator(
-                  value: progress,
-                  minHeight: 2.5,
-                  backgroundColor: isDark
-                      ? AppColors.darkBorder
-                      : AppColors.lightBorder,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                    AppColors.primary,
-                  ),
+                child: ValueListenableBuilder<Duration>(
+                  valueListenable: player.positionNotifier,
+                  builder: (context, pos, _) {
+                    final progress = player.duration.inMilliseconds > 0
+                        ? (pos.inMilliseconds / player.duration.inMilliseconds)
+                            .clamp(0.0, 1.0)
+                        : 0.0;
+                    return LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 2.5,
+                      backgroundColor: isDark
+                          ? AppColors.darkBorder
+                          : AppColors.lightBorder,
+                      valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppColors.primary,
+                      ),
+                    );
+                  },
                 ),
               ),
             ],

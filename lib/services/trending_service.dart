@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 import '../models/trending_track.dart';
@@ -29,7 +29,7 @@ class TrendingService {
     final url = isGlobal ? _globalUrl : _idUrl;
 
     try {
-      final res = await http.get(
+      final res = await HoloHttpClient.client.get(
         Uri.parse(url),
         headers: {
           if (!kIsWeb) 'User-Agent': _userAgent,

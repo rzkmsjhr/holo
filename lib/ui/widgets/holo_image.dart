@@ -23,7 +23,7 @@ class HoloImage extends StatelessWidget {
     this.width,
     this.height,
     this.alignment = Alignment.center,
-    this.filterQuality = FilterQuality.high,
+    this.filterQuality = FilterQuality.medium,
     this.errorBuilder,
     this.loadingBuilder,
     this.placeholder,
@@ -51,6 +51,17 @@ class HoloImage extends StatelessWidget {
       );
     }
 
+    // Downsample bitmap decoding on Adreno 619 GPU to avoid large 1200x1200 memory spikes
+    final dpr = MediaQuery.maybeOf(context)?.devicePixelRatio ?? 2.5;
+    final targetMemWidth = (width != null && width!.isFinite && width! > 0)
+        ? (width! * dpr).round().clamp(64, 1080)
+        : ((height != null && height!.isFinite && height! > 0)
+            ? (height! * dpr).round().clamp(64, 1080)
+            : null);
+    final targetMemHeight = (height != null && height!.isFinite && height! > 0)
+        ? (height! * dpr).round().clamp(64, 1080)
+        : null;
+
     return CachedNetworkImage(
       imageUrl: imageUrl,
       fit: fit,
@@ -58,6 +69,8 @@ class HoloImage extends StatelessWidget {
       height: height,
       alignment: alignment,
       filterQuality: filterQuality,
+      memCacheWidth: targetMemWidth,
+      memCacheHeight: targetMemHeight,
       fadeInDuration: const Duration(milliseconds: 100),
       fadeOutDuration: Duration.zero,
       placeholder: (ctx, url) {

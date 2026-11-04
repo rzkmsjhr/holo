@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 import '../models/artist_details.dart';
 import '../models/track.dart';
 import 'artwork_service.dart';
@@ -83,7 +83,7 @@ class ArtistService {
         'browseId': targetBrowseId,
       };
 
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeBrowseUrl),
             headers: {
@@ -147,7 +147,7 @@ class ArtistService {
     };
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeSearchUrl),
             headers: {
@@ -474,7 +474,7 @@ class ArtistService {
     };
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeBrowseUrl),
             headers: {
@@ -539,7 +539,7 @@ class ArtistService {
     };
 
     try {
-      final res = await http
+      final res = await HoloHttpClient.client
           .post(
             Uri.parse(_innertubeBrowseUrl),
             headers: {

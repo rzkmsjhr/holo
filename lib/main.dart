@@ -34,14 +34,15 @@ class PulseAudioApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final player = context.watch<PlayerProvider>();
+    final isDarkMode =
+        context.select<PlayerProvider, bool>((p) => p.isDarkMode);
 
     return MaterialApp(
       title: 'Holo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),
-      themeMode: player.isDarkMode ? ThemeMode.dark : ThemeMode.light,
+      themeMode: isDarkMode ? ThemeMode.dark : ThemeMode.light,
       home: const MainNavigationShell(),
     );
   }

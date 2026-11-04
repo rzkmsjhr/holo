@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
+import '../core/network/holo_http_client.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
 
@@ -53,7 +53,7 @@ class MonochromeService {
         '$baseUrl/search?q=${Uri.encodeComponent(cleanQuery)}&limit=$limit');
 
     try {
-      var res = await http
+      var res = await HoloHttpClient.client
           .get(searchUrl, headers: {
             if (!kIsWeb) 'User-Agent': userAgent,
             'Accept': 'application/json',
@@ -69,7 +69,7 @@ class MonochromeService {
       if (res.statusCode != 200) {
         final fallbackUrl = Uri.parse(
             '$baseUrl/search/tracks?q=${Uri.encodeComponent(cleanQuery)}&limit=$limit');
-        res = await http
+        res = await HoloHttpClient.client
             .get(fallbackUrl, headers: {
               if (!kIsWeb) 'User-Agent': userAgent,
               'Accept': 'application/json',
@@ -164,7 +164,7 @@ class MonochromeService {
     if (url.isEmpty || isCoolingDown()) return false;
     try {
       await _paceRequest();
-      final res = await http
+      final res = await HoloHttpClient.client
           .get(
             Uri.parse(url),
             headers: {
