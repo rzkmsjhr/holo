@@ -45,9 +45,10 @@ class YouTubeMusicService {
   static const List<String> _badDerivativePhrases = [
     '歌っちゃ王', '原曲歌手', '原曲キー', 'キー上げ', 'キー下げ',
     'ガイドメロ', 'ガイドなし', 'ガイド音', 'ガイドボーカル',
-    'カラオケ', 'karaoke',
-    'off vocal', 'offvocal', 'off-vocal', 'without vocal', 'no vocal',
-    'backing track', 'minus one',
+    'カラオケ', 'karaoke', 'karoke',
+    'off vocal', 'offvocal', 'off-vocal', 'without vocal', 'no vocal', 'tanpa vokal',
+    'backing track', 'minus one', 'minus 1', 'minus-one', '-1', 'instrumen',
+    '纯音乐', '伴奏', '原版伴奏', '伴唱', '消音',
     '弾いてみた', '歌ってみた', '演奏してみた', '叩いてみた', '弾いてみ', '歌ってみ',
     'bass cover', 'guitar cover', 'drum cover', 'piano cover', 'vocal cover',
     'play along', 'playalong', 'tutorial', 'how to play', 'lesson', 'fingerstyle',

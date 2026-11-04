@@ -281,7 +281,7 @@ void main() {
       );
 
       SharedPreferences.setMockInitialValues({
-        'holo_hifi_cache_v11': jsonEncode({
+        'holo_hifi_cache_v12': jsonEncode({
           'pamungkas_bone': elevated.toJson(),
         }),
       });
@@ -292,6 +292,85 @@ void main() {
       expect(retrieved!.isLossless, isTrue);
       expect(retrieved.audioSource, equals('kuwo'));
       expect(retrieved.flacStreamUrl, equals('https://cdn.kuwo.cn/flac/test.flac'));
+    });
+
+    test('cleans up legacy cache keys including v11', () async {
+      final matcher = HifiMatcher();
+      SharedPreferences.setMockInitialValues({
+        'holo_hifi_cache_v11': '{"old":"data"}',
+        'holo_hifi_cache_v2': '{"old2":"data"}',
+      });
+
+      await matcher.init();
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey('holo_hifi_cache_v11'), isFalse);
+      expect(prefs.containsKey('holo_hifi_cache_v2'), isFalse);
+    });
+  });
+
+  group('HifiMatcher Minus-One & Instrumental Exclusions', () {
+    test('detects all minus-one, backing track, and karaoke variants as instrumental edition', () {
+      final variants = [
+        'Alamak - Minus One',
+        'Alamak (Minus-One)',
+        'Alamak - Minus 1',
+        'Alamak (Instrumen)',
+        'Alamak (Inst.)',
+        'Alamak - Karaoke',
+        'Alamak (Karoke)',
+        'Alamak (Tanpa Vokal)',
+        'Alamak (No Vocal)',
+        'Alamak (伴奏)',
+        'Alamak (原版伴奏)',
+        'Alamak (纯音乐)',
+        'Alamak (伴唱)',
+        'Alamak (消音)',
+      ];
+
+      for (final title in variants) {
+        final editions = EditionMatrix.detect(title);
+        expect(
+          editions.contains(EditionKind.instrumental),
+          isTrue,
+          reason: 'Failed to flag "$title" as instrumental/minus-one',
+        );
+      }
+    });
+
+    test('strictly rejects minus-one and backing track candidates for vocal targets (returns 0)', () {
+      final minusOneVariants = [
+        'Alamak - Minus One',
+        'Alamak (Minus-One)',
+        'Alamak - Minus 1',
+        'Alamak (Instrumen)',
+        'Alamak (Inst.)',
+        'Alamak (Karaoke Version)',
+        'Alamak (Karoke)',
+        'Alamak (Tanpa Vokal)',
+        'Alamak (No Vocal)',
+        'Alamak (伴奏)',
+        'Alamak (原版伴奏)',
+        'Alamak (纯音乐)',
+        'Alamak (伴唱)',
+        'Alamak (消音)',
+      ];
+
+      for (final candTitle in minusOneVariants) {
+        final score = HifiMatcher.scoreTrackCandidate(
+          targetTitle: 'Alamak',
+          targetArtist: 'Rizky Febian',
+          targetDurSecs: 209,
+          candId: 'kuwo_123',
+          candTitle: candTitle,
+          candArtist: 'Rizky Febian',
+          candDurSecs: 209,
+        );
+        expect(
+          score,
+          equals(0),
+          reason: 'Expected 0 score for minus-one candidate "$candTitle", got $score',
+        );
+      }
     });
   });
 }

@@ -30,7 +30,7 @@ class EditionMatrix {
     caseSensitive: false,
   );
   static final RegExp instrumentalRegex = RegExp(
-    r'\b(instrumental|karaoke|backing\s*track|minus\s*one|off\s*vocal)\b|(伴奏|原版伴奏)',
+    r'\b(instrumental|instrumen|inst\.?|karaoke|karoke|backing\s*track|minus\s*(?:one|1)|minus-one|-1|off\s*vocal|no\s*vocal|tanpa\s*vokal)\b|(伴奏|原版伴奏|纯音乐|伴唱|消音)',
     caseSensitive: false,
   );
   static final RegExp soundtrackRegex = RegExp(
@@ -76,12 +76,13 @@ class HifiMatcher {
   final KuwoService _kuwoService = KuwoService();
   final MonochromeService _monochromeService = MonochromeService();
 
-  /// Matcher version 11 - matching nadanada v11 specification
-  static const int matcherVersion = 11;
-  static const String _storageKey = 'holo_hifi_cache_v11';
+  /// Matcher version 12 - matching nadanada v12 specification
+  static const int matcherVersion = 12;
+  static const String _storageKey = 'holo_hifi_cache_v12';
   static const List<String> _legacyStorageKeys = [
     'holo_hifi_cache',
     'holo_hifi_cache_v2',
+    'holo_hifi_cache_v11',
   ];
 
   bool _isInitialized = false;
@@ -809,14 +810,19 @@ class HifiMatcher {
     for (final q in kuwoQueries.take(4)) {
       try {
         final list = await _kuwoService.searchCandidates(q, size: 12);
-        // Count duplicate track titles within same album to detect untagged bonus discs
-        final albumTitleCounts = <String, int>{};
+        // Detect albums containing multiple tracks with identical title (e.g. single releases with Track 1 = Vocal, Track 2 = Minus One/Karaoke)
+        final albumTitleMinId = <String, int>{};
         for (final c in list) {
           final ct = cleanString(c['name']?.toString() ?? '');
           final ca = cleanString(c['album_name']?.toString() ?? '');
           if (ct.isNotEmpty && ca.isNotEmpty) {
             final key = '$ct::$ca';
-            albumTitleCounts[key] = (albumTitleCounts[key] ?? 0) + 1;
+            final idNum =
+                int.tryParse(c['id']?.toString() ?? '') ?? 0x7FFFFFFFFFFFFFFF;
+            final existingMin = albumTitleMinId[key];
+            if (existingMin == null || idNum < existingMin) {
+              albumTitleMinId[key] = idNum;
+            }
           }
         }
 
@@ -845,15 +851,27 @@ class HifiMatcher {
 
           if (score == 0) continue;
 
-          // Deduct 25 if multiple tracks in the same album share identical title
+          // If album has multiple tracks sharing the identical title, the primary vocal track is Track 1 (lowest numeric song ID).
+          // Any subsequent track (Track 2+, higher ID) is an unlabelled Minus-One / Accompaniment cut -> penalize heavily by 60 points.
           final ct = cleanString(cTitle);
           final ca = cleanString(cAlbum);
-          if ((albumTitleCounts['$ct::$ca'] ?? 0) > 1) {
-            score = (score - 25).clamp(0, 300);
+          final idNum = int.tryParse(cId) ?? 0x7FFFFFFFFFFFFFFF;
+          final minId = albumTitleMinId['$ct::$ca'];
+          if (minId != null && idNum > minId) {
+            score = (score - 60).clamp(0, 300);
           }
 
           if (score >= 140) {
+            bool isBetter = false;
             if (score > bestKuwoScore) {
+              isBetter = true;
+            } else if (score == bestKuwoScore && bestKuwoRaw != null) {
+              final currId = int.tryParse(cId) ?? 0x7FFFFFFFFFFFFFFF;
+              final bestId =
+                  int.tryParse(bestKuwoRaw['id']?.toString() ?? '') ?? 0;
+              isBetter = currId < bestId;
+            }
+            if (isBetter) {
               bestKuwoScore = score;
               bestKuwoRaw = c;
               bestKuwoBitrate = flacBitrate;
@@ -952,7 +970,16 @@ class HifiMatcher {
             );
 
             if (score >= 140) {
+              bool isBetter = false;
               if (score > bestMonoScore) {
+                isBetter = true;
+              } else if (score == bestMonoScore && bestMonoTrack != null) {
+                final currId =
+                    int.tryParse(mono.id) ?? 0x7FFFFFFFFFFFFFFF;
+                final bestId = int.tryParse(bestMonoTrack.id) ?? 0;
+                isBetter = currId < bestId;
+              }
+              if (isBetter) {
                 bestMonoScore = score;
                 bestMonoTrack = mono;
               }
