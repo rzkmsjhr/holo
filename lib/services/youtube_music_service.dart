@@ -85,7 +85,7 @@ class YouTubeMusicService {
     return buf.toString().toLowerCase().replaceAll(_multiSpaceRegex, ' ').trim();
   }
 
-  static bool _isKaraokeOrDerivative(String title, String channel, String rawQuery) {
+  static bool isKaraokeOrDerivative(String title, String channel, String rawQuery) {
     final lowerTitle = title.toLowerCase();
     final lowerChannel = channel.toLowerCase();
     final lowerQuery = rawQuery.toLowerCase();
@@ -454,7 +454,7 @@ class YouTubeMusicService {
       score += 1500;
     }
 
-    if (_isKaraokeOrDerivative(track.title, track.artist, rawQuery)) {
+    if (isKaraokeOrDerivative(track.title, track.artist, rawQuery)) {
       score += 1000;
     }
 
@@ -537,7 +537,7 @@ class YouTubeMusicService {
         results.removeWhere((t) =>
             t.extraData?['itemType'] != 'song' ||
             isVideoRecord(t.title, t.artist) ||
-            _isKaraokeOrDerivative(t.title, t.artist, effectiveQuery));
+            isKaraokeOrDerivative(t.title, t.artist, effectiveQuery));
         if (results.isNotEmpty) {
           final queryWords = cleanQuery
               .split(_multiSpaceRegex)
@@ -556,6 +556,85 @@ class YouTubeMusicService {
 
     // Fallback: Search regular YouTube with "<effectiveQuery> topic" (nadanada fallback)
     return _searchTopicFallback(effectiveQuery);
+  }
+
+  /// Searches YouTube Web for video records, mirroring nadanada's `search_youtube(query, Some("video"))`.
+  Future<List<Track>> searchVideos(String query) async {
+    final cleanQuery = cleanTitleForMatching(query);
+    if (cleanQuery.isEmpty) return [];
+
+    try {
+      final res = await HoloHttpClient.client
+          .post(
+            Uri.parse(_ytWebSearchUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'query': query,
+              'context': {
+                'client': {
+                  'clientName': 'WEB',
+                  'clientVersion': '2.20250201.00.00',
+                  'hl': 'en',
+                  'gl': 'US',
+                }
+              },
+            }),
+          )
+          .timeout(const Duration(seconds: 7));
+
+      if (res.statusCode != 200) return [];
+      final decoded = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
+      final data = jsonDecode(decoded);
+      final List<Track> tracks = [];
+      final seen = <String>{};
+
+      final sections = data['contents']?['twoColumnSearchResultsRenderer']
+          ?['primaryContents']?['sectionListRenderer']?['contents'];
+      if (sections is List) {
+        for (final sec in sections) {
+          final contents = sec['itemSectionRenderer']?['contents'];
+          if (contents is List) {
+            for (final item in contents) {
+              final video = item['videoRenderer'];
+              if (video is Map) {
+                final vId = video['videoId']?.toString() ?? '';
+                final title =
+                    video['title']?['runs']?[0]?['text']?.toString() ?? '';
+                final rawChannel =
+                    video['ownerText']?['runs']?[0]?['text']?.toString() ?? '';
+                final cleanArtist =
+                    rawChannel.replaceAll(_topicRegex, '').trim();
+                final durStr =
+                    video['lengthText']?['simpleText']?.toString() ?? '';
+                final thumbs = video['thumbnail']?['thumbnails'] as List?;
+                final thumb = (thumbs != null && thumbs.isNotEmpty)
+                    ? thumbs.last['url']?.toString() ?? ''
+                    : '';
+
+                if (vId.isNotEmpty && title.isNotEmpty && seen.add(vId)) {
+                  tracks.add(Track(
+                    id: vId,
+                    title: TextEncodingUtils.cleanMojibake(title),
+                    artist: TextEncodingUtils.cleanMojibake(
+                        cleanArtist.isNotEmpty ? cleanArtist : rawChannel),
+                    thumbnailUrl: Track.toHighResUrl(thumb),
+                    durationSeconds: _parseDuration(durStr),
+                    youtubeVideoId: vId,
+                    audioSource: 'youtube',
+                    isLossless: false,
+                    extraData: const {'itemType': 'video'},
+                  ));
+                }
+              }
+              if (tracks.length >= 20) break;
+            }
+          }
+        }
+      }
+      return tracks;
+    } catch (_) {
+      return [];
+    }
   }
 
   /// Fallback search appending " topic" to return "- Topic" song tracks from YouTube
@@ -613,7 +692,7 @@ class YouTubeMusicService {
                 final isTopic = rawChannel.toLowerCase().endsWith('- topic');
                 final isVideo = isVideoRecord(title, rawChannel);
                 final isKaraoke =
-                    _isKaraokeOrDerivative(title, rawChannel, effectiveQuery);
+                    isKaraokeOrDerivative(title, rawChannel, effectiveQuery);
                 final artistMatches =
                     _artistMatchesQuery(rawChannel, title, effectiveQuery);
 
@@ -857,7 +936,7 @@ class YouTubeMusicService {
         final items = section['musicShelfRenderer']?['contents'];
         if (items != null && items is List) {
           for (final item in items) {
-            final track = _parseListItem(item['musicResponsiveListItemRenderer']);
+            final track = parseListItem(item['musicResponsiveListItemRenderer']);
             if (track != null) {
               tracks.add(track);
             }
@@ -871,7 +950,7 @@ class YouTubeMusicService {
 
   /// Parses an item from YouTube Music's `musicResponsiveListItemRenderer` into a "song" Track,
   /// mirroring nadanada's `parse_ytm_song_item`.
-  Track? _parseListItem(Map<String, dynamic>? item) {
+  static Track? parseListItem(Map<String, dynamic>? item) {
     if (item == null) return null;
 
     try {
@@ -1004,7 +1083,7 @@ class YouTubeMusicService {
     }
   }
 
-  int _parseDuration(String timeStr) {
+  static int _parseDuration(String timeStr) {
     final parts =
         timeStr.trim().split(':').map((s) => int.tryParse(s) ?? 0).toList();
     if (parts.length == 2) {

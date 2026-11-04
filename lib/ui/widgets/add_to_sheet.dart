@@ -6,6 +6,7 @@ import '../../models/playlist.dart';
 import '../../models/track.dart';
 import '../../models/trending_track.dart';
 import '../../providers/player_provider.dart';
+import 'import_playlist_sheet.dart';
 
 /// Shows the universal "Add to Queue or Playlist" modal bottom sheet
 void showAddToSheet(
@@ -56,9 +57,22 @@ Future<void> showCreatePlaylistDialog(
         backgroundColor:
             isDark ? AppColors.darkSurfaceElevated : AppColors.lightSurfaceElevated,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text(
-          'New Playlist',
-          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'New Playlist',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+            TextButton.icon(
+              onPressed: () {
+                Navigator.pop(dialogCtx);
+                showImportPlaylistSheet(context);
+              },
+              icon: const Icon(Icons.link_rounded, size: 16),
+              label: const Text('Import', style: TextStyle(fontSize: 12)),
+            ),
+          ],
         ),
         content: TextField(
           controller: controller,

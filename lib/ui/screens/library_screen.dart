@@ -5,6 +5,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/playlist.dart';
 import '../../providers/player_provider.dart';
 import '../widgets/add_to_sheet.dart';
+import '../widgets/import_playlist_sheet.dart';
 import '../widgets/live_equalizer_bars.dart';
 import 'playlist_detail_screen.dart';
 
@@ -56,6 +57,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   ),
                   Row(
                     children: [
+                      IconButton(
+                        icon: const Icon(Icons.link_rounded, size: 24),
+                        tooltip: 'Import Playlist (YouTube / Spotify)',
+                        onPressed: () => showImportPlaylistSheet(context),
+                      ),
                       IconButton(
                         icon: const Icon(Icons.add_rounded, size: 26),
                         tooltip: 'Create New Playlist',
@@ -748,22 +754,49 @@ class _LibraryScreenState extends State<LibraryScreen> {
                     ),
                   ),
                   const SizedBox(height: 18),
-                  ElevatedButton.icon(
-                    onPressed: () => showCreatePlaylistDialog(context, player),
-                    icon: const Icon(Icons.add_rounded, size: 20),
-                    label: const Text(
-                      'Create Playlist',
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 20, vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      ElevatedButton.icon(
+                        onPressed: () =>
+                            showCreatePlaylistDialog(context, player),
+                        icon: const Icon(Icons.add_rounded, size: 20),
+                        label: const Text(
+                          'Create',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 10),
+                      OutlinedButton.icon(
+                        onPressed: () => showImportPlaylistSheet(context),
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: const Text(
+                          'Import',
+                          style: TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                          side: BorderSide(
+                            color: isDark
+                                ? AppColors.darkBorder
+                                : AppColors.lightBorder,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

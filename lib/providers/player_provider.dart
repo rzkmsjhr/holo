@@ -16,6 +16,7 @@ import '../services/hifi_matcher.dart';
 import '../services/kworb_data_snapshot.dart';
 import '../services/lyrics_service.dart';
 import '../services/playlist_service.dart';
+import '../services/playlist_import_service.dart';
 import '../services/taste_profile_service.dart';
 import '../services/trending_service.dart';
 import '../services/vibe_recommendation_service.dart';
@@ -38,6 +39,8 @@ class PlayerProvider extends ChangeNotifier {
       VibeRecommendationService(ytmService: _ytmService);
   late final TrendingService _trendingService =
       TrendingService(ytmService: _ytmService);
+  late final PlaylistImportService _playlistImportService =
+      PlaylistImportService(ytmService: _ytmService);
 
   Track? _currentTrack;
   bool _isPlaying = false;
@@ -972,15 +975,53 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<Playlist> createPlaylist(String title,
-      {String description = '', List<Track>? initialTracks}) async {
+      {String description = '',
+      List<Track>? initialTracks,
+      String? coverUrl}) async {
     final p = await _playlistService.createPlaylist(
       title,
       description: description,
       initialTracks: initialTracks,
+      coverUrl: coverUrl,
     );
     _playlists = await _playlistService.loadPlaylists(sampleCatalog: _queue);
     notifyListeners();
     return p;
+  }
+
+  PlaylistImportService get playlistImportService => _playlistImportService;
+
+  Future<(Playlist, PlaylistImportResult)> importPlaylistFromUrl(
+    String url, {
+    void Function(int current, int total, String trackName)? onProgress,
+  }) async {
+    final result = await _playlistImportService.importPlaylist(
+      url,
+      onProgress: onProgress,
+    );
+
+    final gatedTracks = result.tracks
+        .map((t) => _hifiMatcher.prepareTrackThroughGateSync(
+              t,
+              isHifiEnabled: _isHifiEnabled,
+            ))
+        .toList();
+
+    final platformName =
+        result.platform == PlaylistPlatform.spotify ? 'Spotify' : 'YouTube';
+    final desc = 'Imported from $platformName • ${gatedTracks.length} tracks';
+
+    final created = await _playlistService.createPlaylist(
+      result.title,
+      description: desc,
+      initialTracks: gatedTracks,
+      coverUrl: result.coverUrl,
+    );
+
+    _playlists = await _playlistService.loadPlaylists(sampleCatalog: _queue);
+    notifyListeners();
+
+    return (created, result);
   }
 
   Future<bool> addTrackToPlaylist(String playlistId, Track track) async {

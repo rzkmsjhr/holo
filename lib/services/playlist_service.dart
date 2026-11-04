@@ -40,11 +40,14 @@ class PlaylistService {
     String title, {
     String description = '',
     List<Track>? initialTracks,
+    String? coverUrl,
   }) async {
     final cleanTitle = title.trim();
     final newId = 'playlist_${DateTime.now().millisecondsSinceEpoch}';
     final tracks = initialTracks != null ? List<Track>.from(initialTracks) : <Track>[];
-    final cover = tracks.isNotEmpty ? tracks.first.highResThumbnailUrl : null;
+    final cover = (coverUrl != null && coverUrl.isNotEmpty)
+        ? coverUrl
+        : (tracks.isNotEmpty ? tracks.first.highResThumbnailUrl : null);
 
     final newPlaylist = Playlist(
       id: newId,
