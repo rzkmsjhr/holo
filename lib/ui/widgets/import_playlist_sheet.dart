@@ -60,6 +60,8 @@ class _ImportPlaylistSheetState extends State<ImportPlaylistSheet> {
     if (text.isEmpty) {
       if (_detectedFromInput != null) {
         setState(() => _detectedFromInput = null);
+      } else {
+        setState(() {});
       }
       return;
     }
@@ -69,6 +71,8 @@ class _ImportPlaylistSheetState extends State<ImportPlaylistSheet> {
         _detectedFromInput = parsed;
         _errorMessage = null;
       });
+    } else {
+      setState(() {});
     }
   }
 
@@ -349,101 +353,135 @@ class _ImportPlaylistSheetState extends State<ImportPlaylistSheet> {
   }
 
   Widget _buildClipboardCard(bool isDark) {
-    final isSpotify = _detectedFromClipboard?.platform == PlaylistPlatform.spotify;
+    final isSpotify =
+        _detectedFromClipboard?.platform == PlaylistPlatform.spotify;
     final color = isSpotify ? const Color(0xFF1DB954) : const Color(0xFFFF0000);
     final platformName = isSpotify ? 'Spotify' : 'YouTube';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: color.withValues(alpha: 0.25)),
       ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.16),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              isSpotify ? Icons.album_rounded : Icons.play_arrow_rounded,
-              color: color,
-              size: 20,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: () {
+            _urlController.text = _clipboardCandidate!;
+            _startImport(_clipboardCandidate!);
+          },
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    const Text(
-                      'Found in Clipboard',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                      ),
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.16),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Icon(
+                      isSpotify ? Icons.album_rounded : Icons.play_arrow_rounded,
+                      color: color,
+                      size: 20,
                     ),
-                    const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 5, vertical: 1),
-                      decoration: BoxDecoration(
-                        color: color,
-                        borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 1.5),
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              platformName,
+                              style: const TextStyle(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          const Expanded(
+                            child: Text(
+                              'Found in Clipboard',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                      child: Text(
-                        platformName,
-                        style: const TextStyle(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
+                      const SizedBox(height: 2),
+                      Text(
+                        _clipboardCandidate!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: isDark
+                              ? AppColors.darkTextSecondary
+                              : AppColors.lightTextSecondary,
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  _clipboardCandidate!,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: isDark
-                        ? AppColors.darkTextSecondary
-                        : AppColors.lightTextSecondary,
+                const SizedBox(width: 8),
+                ElevatedButton(
+                  onPressed: () {
+                    _urlController.text = _clipboardCandidate!;
+                    _startImport(_clipboardCandidate!);
+                  },
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: color,
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    minimumSize: const Size(0, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.bolt_rounded, size: 14),
+                      SizedBox(width: 3),
+                      Text(
+                        'Import',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          ElevatedButton(
-            onPressed: () {
-              _urlController.text = _clipboardCandidate!;
-              _startImport(_clipboardCandidate!);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: color,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              minimumSize: const Size(0, 36),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            child: const Text(
-              '1-Tap Import',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
