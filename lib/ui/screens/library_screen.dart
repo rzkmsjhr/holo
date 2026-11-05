@@ -19,6 +19,19 @@ class LibraryScreen extends StatefulWidget {
 
 class _LibraryScreenState extends State<LibraryScreen> {
   int _selectedSegment = 0; // 0 = Playlists, 1 = Liked, 2 = Queue
+  late final PageController _libraryPageController;
+
+  @override
+  void initState() {
+    super.initState();
+    _libraryPageController = PageController(initialPage: _selectedSegment);
+  }
+
+  @override
+  void dispose() {
+    _libraryPageController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -114,11 +127,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
             // Content Area
             Expanded(
-              child: _selectedSegment == 0
-                  ? _buildSavedPlaylistsView(context, player, isDark)
-                  : (_selectedSegment == 1
-                      ? _buildLikedSongsView(context, player, isDark)
-                      : _buildQueueView(context, player)),
+              child: PageView(
+                controller: _libraryPageController,
+                physics: const PageScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                onPageChanged: (index) {
+                  setState(() => _selectedSegment = index);
+                },
+                children: [
+                  _KeepAlivePage(
+                    child: _buildSavedPlaylistsView(context, player, isDark),
+                  ),
+                  _KeepAlivePage(
+                    child: _buildLikedSongsView(context, player, isDark),
+                  ),
+                  _KeepAlivePage(
+                    child: _buildQueueView(context, player),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -138,7 +166,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Expanded(
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _selectedSegment = index),
+        onTap: () {
+          if (_selectedSegment != index) {
+            setState(() => _selectedSegment = index);
+            _libraryPageController.animateToPage(
+              index,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOutCubic,
+            );
+          }
+        },
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8),
           decoration: BoxDecoration(
@@ -1484,5 +1521,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ),
       ],
     );
+  }
+}
+
+class _KeepAlivePage extends StatefulWidget {
+  final Widget child;
+  const _KeepAlivePage({required this.child});
+
+  @override
+  State<_KeepAlivePage> createState() => _KeepAlivePageState();
+}
+
+class _KeepAlivePageState extends State<_KeepAlivePage>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
   }
 }

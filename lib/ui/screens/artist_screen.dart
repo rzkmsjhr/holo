@@ -35,6 +35,7 @@ class _ArtistScreenState extends State<ArtistScreen> {
   bool _isLoadingAllSongs = false;
   bool _isBioExpanded = false;
   bool _isScrolled = false;
+  double _horizontalDragDistance = 0.0;
 
   @override
   void initState() {
@@ -163,19 +164,37 @@ class _ArtistScreenState extends State<ArtistScreen> {
 
     return Scaffold(
       backgroundColor: backgroundColor,
-      body: Stack(
-        children: [
-          // Main Scrollable Content
-          if (_isLoading)
-            _buildLoadingState(isDark)
-          else if (_errorMessage != null && _artistDetails == null)
-            _buildErrorState(isDark)
-          else
-            _buildContent(context, isDark),
+      body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onHorizontalDragStart: (_) {
+          _horizontalDragDistance = 0.0;
+        },
+        onHorizontalDragUpdate: (details) {
+          _horizontalDragDistance += details.primaryDelta ?? 0.0;
+        },
+        onHorizontalDragEnd: (details) {
+          final velocity = details.primaryVelocity ?? 0.0;
+          // Swipe right (left-to-right gesture) returns to Now Playing screen
+          if (velocity > 220 || _horizontalDragDistance > 90) {
+            if (Navigator.of(context).canPop()) {
+              Navigator.of(context).pop();
+            }
+          }
+        },
+        child: Stack(
+          children: [
+            // Main Scrollable Content
+            if (_isLoading)
+              _buildLoadingState(isDark)
+            else if (_errorMessage != null && _artistDetails == null)
+              _buildErrorState(isDark)
+            else
+              _buildContent(context, isDark),
 
-          // Floating Glass Top Navigation Bar
-          _buildTopBar(context, isDark),
-        ],
+            // Floating Glass Top Navigation Bar
+            _buildTopBar(context, isDark),
+          ],
+        ),
       ),
     );
   }
