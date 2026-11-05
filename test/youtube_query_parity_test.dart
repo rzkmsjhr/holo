@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pulse_audio/models/track.dart';
+import 'package:pulse_audio/providers/player_provider.dart';
+import 'package:pulse_audio/services/trending_service.dart';
 import 'package:pulse_audio/services/vibe_recommendation_service.dart';
 import 'package:pulse_audio/services/youtube_music_service.dart';
 
@@ -137,6 +139,68 @@ void main() {
       final trackDiff = Track(id: '5', title: 'Stay With Me', artist: 'Miki Matsubara', thumbnailUrl: '', durationSeconds: 200);
       expect(vibe.isSameArtist(trackA1, trackDiff), isFalse,
           reason: 'Distinct artists must not match');
+    });
+  });
+
+  group('Fixes & Features Parity Verification', () {
+    test('OMV penalty vs Topic boost in scoreSearchCandidate', () {
+      final omvCandidate = Track(
+        id: 'vid1',
+        title: 'Dear God (Official Music Video)',
+        artist: 'Avenged Sevenfold',
+        thumbnailUrl: '',
+        durationSeconds: 333,
+        extraData: {
+          'itemType': 'video',
+          'musicVideoType': 'MUSIC_VIDEO_TYPE_OMV',
+        },
+      );
+
+      final topicCandidate = Track(
+        id: 'song1',
+        title: 'Dear God',
+        artist: 'Avenged Sevenfold - Topic',
+        thumbnailUrl: '',
+        durationSeconds: 333,
+        extraData: {
+          'itemType': 'song',
+          'musicVideoType': 'MUSIC_VIDEO_TYPE_ATV',
+        },
+      );
+
+      final qWords = ['dear', 'god'];
+      final omvScore = YouTubeMusicService.scoreSearchCandidate(
+          omvCandidate, qWords, 'Dear God');
+      final topicScore = YouTubeMusicService.scoreSearchCandidate(
+          topicCandidate, qWords, 'Dear God');
+
+      expect(omvScore, greaterThanOrEqualTo(1000),
+          reason: 'OMV music videos must receive at least +1000 penalty');
+      expect(topicScore, lessThan(omvScore),
+          reason: 'Studio - Topic / ATV song must rank significantly ahead of OMV');
+    });
+
+    test('PlayerProvider.spaceOutArtistTracks eliminates back-to-back artist conflicts', () {
+      final tracks = [
+        Track(id: '1', title: 'Song A1', artist: 'Artist A', thumbnailUrl: '', durationSeconds: 200),
+        Track(id: '2', title: 'Song A2', artist: 'Artist A', thumbnailUrl: '', durationSeconds: 200),
+        Track(id: '3', title: 'Song B1', artist: 'Artist B', thumbnailUrl: '', durationSeconds: 200),
+        Track(id: '4', title: 'Song C1', artist: 'Artist C', thumbnailUrl: '', durationSeconds: 200),
+        Track(id: '5', title: 'Song A3', artist: 'Artist A', thumbnailUrl: '', durationSeconds: 200),
+      ];
+
+      final spaced = PlayerProvider.spaceOutArtistTracks(tracks);
+      expect(spaced.length, 5);
+      for (int i = 0; i < spaced.length - 1; i++) {
+        expect(spaced[i].artist, isNot(equals(spaced[i + 1].artist)),
+            reason: 'Consecutive tracks in queue must not be by the same artist');
+      }
+    });
+
+    test('Trending countries catalog contains supported regions without requesting permissions', () {
+      expect(kSupportedTrendingCountries.length, 18);
+      expect(kSupportedTrendingCountries.any((c) => c.code == 'id'), isTrue);
+      expect(kSupportedTrendingCountries.any((c) => c.code == 'us'), isTrue);
     });
   });
 }

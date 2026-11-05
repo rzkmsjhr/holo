@@ -458,6 +458,15 @@ class YouTubeMusicService {
       score += 1000;
     }
 
+    final mvt = track.extraData?['musicVideoType']?.toString() ?? '';
+    final isTopic = track.artist.toLowerCase().endsWith('- topic') ||
+        mvt == 'MUSIC_VIDEO_TYPE_ATV';
+    if (isTopic) {
+      score -= 200;
+    } else if (mvt == 'MUSIC_VIDEO_TYPE_OMV' || mvt == 'MUSIC_VIDEO_TYPE_UGC') {
+      score += 1000;
+    }
+
     if (isSong && titleMatched && artistMatched) {
       score -= 150;
     } else if (!isSong) {
@@ -894,8 +903,19 @@ class YouTubeMusicService {
                   ? thumbs.last['url']?.toString() ?? ''
                   : '';
 
-              final isTopic = rawArtist.toLowerCase().endsWith('- topic');
-              final isVideo = isVideoRecord(title, rawArtist);
+              final musicVideoType = panelItem['navigationEndpoint']?['watchEndpoint']
+                      ?['watchEndpointMusicSupportedConfigs']
+                      ?['watchEndpointMusicConfig']?['musicVideoType']?.toString() ??
+                  panelItem['playNavigationEndpoint']?['watchEndpoint']
+                      ?['watchEndpointMusicSupportedConfigs']
+                      ?['watchEndpointMusicConfig']?['musicVideoType']?.toString() ??
+                  '';
+
+              final isTopic = rawArtist.toLowerCase().endsWith('- topic') ||
+                  musicVideoType == 'MUSIC_VIDEO_TYPE_ATV';
+              final isExplicitOmv = musicVideoType == 'MUSIC_VIDEO_TYPE_OMV' ||
+                  musicVideoType == 'MUSIC_VIDEO_TYPE_UGC';
+              final isVideo = (isExplicitOmv || isVideoRecord(title, rawArtist)) && !isTopic;
 
               if (vId.isNotEmpty && title.isNotEmpty && vId != videoId && (!isVideo || isTopic)) {
                 tracks.add(Track(
@@ -908,7 +928,10 @@ class YouTubeMusicService {
                   youtubeVideoId: vId,
                   audioSource: 'youtube',
                   isLossless: false,
-                  extraData: const {'itemType': 'song'},
+                  extraData: {
+                    'itemType': 'song',
+                    if (musicVideoType.isNotEmpty) 'musicVideoType': musicVideoType,
+                  },
                 ));
               }
             }
@@ -1050,12 +1073,31 @@ class YouTubeMusicService {
         }
       }
 
+      final musicVideoType = item['overlay']?['musicItemThumbnailOverlayRenderer']?['content']
+              ?['musicPlayButtonRenderer']?['playNavigationEndpoint']
+              ?['watchEndpoint']?['watchEndpointMusicSupportedConfigs']
+              ?['watchEndpointMusicConfig']?['musicVideoType']?.toString() ??
+          item['flexColumns']?[0]
+              ?['musicResponsiveListItemFlexColumnRenderer']?['text']?['runs']?[0]
+              ?['navigationEndpoint']?['watchEndpoint']
+              ?['watchEndpointMusicSupportedConfigs']
+              ?['watchEndpointMusicConfig']?['musicVideoType']?.toString() ??
+          item['navigationEndpoint']?['watchEndpoint']
+              ?['watchEndpointMusicSupportedConfigs']
+              ?['watchEndpointMusicConfig']?['musicVideoType']?.toString() ??
+          '';
+
       final rawArtist = artist;
+      final isTopicChannel = rawArtist.toLowerCase().endsWith('- topic') ||
+          musicVideoType == 'MUSIC_VIDEO_TYPE_ATV';
       artist = artist
           .replaceAll(RegExp(r'\s*-\s*Topic$', caseSensitive: false), '')
           .trim();
 
-      final isVideo = isVideoRecord(title, rawArtist) && !rawArtist.toLowerCase().endsWith('- topic');
+      final isExplicitOmv = musicVideoType == 'MUSIC_VIDEO_TYPE_OMV' ||
+          musicVideoType == 'MUSIC_VIDEO_TYPE_UGC' ||
+          (musicVideoType.contains('VIDEO') && !musicVideoType.contains('ATV'));
+      final isVideo = (isExplicitOmv || isVideoRecord(title, rawArtist)) && !isTopicChannel;
       final itemType = isVideo ? 'video' : 'song';
 
       final thumbs = item['thumbnail']?['musicThumbnailRenderer']?['thumbnail']
@@ -1076,7 +1118,10 @@ class YouTubeMusicService {
         youtubeVideoId: videoId,
         audioSource: 'youtube',
         isLossless: false,
-        extraData: {'itemType': itemType},
+        extraData: {
+          'itemType': itemType,
+          if (musicVideoType.isNotEmpty) 'musicVideoType': musicVideoType,
+        },
       );
     } catch (_) {
       return null;

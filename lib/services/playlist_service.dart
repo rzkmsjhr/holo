@@ -45,9 +45,7 @@ class PlaylistService {
     final cleanTitle = title.trim();
     final newId = 'playlist_${DateTime.now().millisecondsSinceEpoch}';
     final tracks = initialTracks != null ? List<Track>.from(initialTracks) : <Track>[];
-    final cover = (coverUrl != null && coverUrl.isNotEmpty)
-        ? coverUrl
-        : (tracks.isNotEmpty ? tracks.first.highResThumbnailUrl : null);
+    final cover = (coverUrl != null && coverUrl.isNotEmpty) ? coverUrl : null;
 
     final newPlaylist = Playlist(
       id: newId,
@@ -106,11 +104,10 @@ class PlaylistService {
     if (alreadyExists) return false;
 
     final updatedTracks = List<Track>.from(current.tracks)..add(track);
-    final cover = current.coverUrl ?? track.highResThumbnailUrl;
 
     _cachedPlaylists[index] = current.copyWith(
       tracks: updatedTracks,
-      coverUrl: cover,
+      coverUrl: current.coverUrl,
     );
 
     await _saveToStorage();
@@ -127,13 +124,9 @@ class PlaylistService {
         .where((t) => (t.youtubeVideoId ?? t.id) != trackId)
         .toList();
 
-    final cover = updatedTracks.isNotEmpty
-        ? updatedTracks.first.highResThumbnailUrl
-        : null;
-
     _cachedPlaylists[index] = current.copyWith(
       tracks: updatedTracks,
-      coverUrl: cover,
+      coverUrl: current.coverUrl,
     );
 
     await _saveToStorage();

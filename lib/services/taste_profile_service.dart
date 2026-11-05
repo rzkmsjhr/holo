@@ -123,6 +123,7 @@ class TasteProfileService {
     }
 
     final mixes = <DailyMix>[];
+    final excludedIds = <String>{};
 
     // Mix 1: Primary Taste Mix (Top Artist #1)
     final primaryArtist = topArtists[0];
@@ -133,13 +134,35 @@ class TasteProfileService {
       artist: primaryArtist,
       fallbackCatalog: fallbackCatalog,
       gradientColors: const [Color(0xFFFF5416), Color(0xFF5A32A3)],
+      excludedTrackIds: excludedIds,
     );
+    for (final t in mix1.tracks) {
+      final id = t.youtubeVideoId ?? t.id;
+      if (id.isNotEmpty) excludedIds.add(id);
+    }
     mixes.add(mix1);
 
-    // Mix 2: Alternate Vibe Mix (Top Artist #2 or secondary cluster)
-    final secondaryArtist = topArtists.length > 1
-        ? topArtists[1]
-        : (fallbackCatalog.length > 1 ? fallbackCatalog[1].artist : 'Pop');
+    // Mix 2: Alternate Vibe Mix (Top Artist #2 or secondary cluster, strictly distinct from Artist #1)
+    String secondaryArtist = '';
+    if (topArtists.length > 1 && _cleanArtist(topArtists[1]) != _cleanArtist(primaryArtist)) {
+      secondaryArtist = topArtists[1];
+    } else {
+      for (final t in fallbackCatalog) {
+        final a = _cleanArtist(t.artist);
+        if (a.isNotEmpty && a != _cleanArtist(primaryArtist) && a != 'various artists') {
+          secondaryArtist = t.artist;
+          break;
+        }
+      }
+      if (secondaryArtist.isEmpty) {
+        const fallbackSeeds = ['The Weeknd', 'Coldplay', 'Taylor Swift', 'SZA', 'Queen', 'Bruno Mars'];
+        secondaryArtist = fallbackSeeds.firstWhere(
+          (s) => _cleanArtist(s) != _cleanArtist(primaryArtist),
+          orElse: () => 'The Weeknd',
+        );
+      }
+    }
+
     final mix2 = await _createMixForArtist(
       id: 'mix_2',
       title: 'Daily Mix 2',
@@ -147,7 +170,12 @@ class TasteProfileService {
       artist: secondaryArtist,
       fallbackCatalog: fallbackCatalog,
       gradientColors: const [Color(0xFF5A32A3), Color(0xFF0F2027)],
+      excludedTrackIds: excludedIds,
     );
+    for (final t in mix2.tracks) {
+      final id = t.youtubeVideoId ?? t.id;
+      if (id.isNotEmpty) excludedIds.add(id);
+    }
     mixes.add(mix2);
 
     // Mix 3: Chill Vibe Mix (anchored on genuine chill artists, never bot spam)
@@ -180,33 +208,58 @@ class TasteProfileService {
     required String artist,
     required List<Track> fallbackCatalog,
     required List<Color> gradientColors,
+    Set<String>? excludedTrackIds,
   }) async {
     // 1. Find anchor track in fallbackCatalog or search
-    Track? anchor = fallbackCatalog.firstWhere(
-      (t) => _cleanArtist(t.artist).contains(artist.toLowerCase()),
-      orElse: () => fallbackCatalog.first,
-    );
+    Track? anchor = fallbackCatalog
+        .where((t) => _cleanArtist(t.artist).contains(artist.toLowerCase()))
+        .firstOrNull;
 
     List<Track> mixTracks = [];
-    final anchorId = anchor.youtubeVideoId ?? anchor.id;
+
+    // 2. If anchor not in fallbackCatalog, query YouTube Music search for this specific artist
+    if (anchor == null) {
+      try {
+        final searched = await _ytmService.searchSongs('$artist songs');
+        if (searched.isNotEmpty) {
+          anchor = searched.first;
+        }
+      } catch (_) {}
+    }
+
+    final anchorId = anchor?.youtubeVideoId ?? anchor?.id ?? '';
 
     if (anchorId.isNotEmpty) {
       try {
-        mixTracks = await _ytmService.getRelatedTracks(anchorId);
+        final related = await _ytmService.getRelatedTracks(anchorId);
+        mixTracks = related.where((t) => !isSpamOrBotTrack(t)).toList();
       } catch (_) {}
     }
 
     if (mixTracks.isEmpty) {
       try {
-        mixTracks = await _ytmService.searchSongs('$artist songs');
+        final songs = await _ytmService.searchSongs('$artist songs');
+        mixTracks = songs.where((t) => !isSpamOrBotTrack(t)).toList();
       } catch (_) {}
     }
 
     if (mixTracks.isEmpty) {
       mixTracks = fallbackCatalog
-          .where((t) => _cleanArtist(t.artist).contains(artist.toLowerCase()))
+          .where((t) =>
+              _cleanArtist(t.artist).contains(artist.toLowerCase()) &&
+              !isSpamOrBotTrack(t))
           .toList();
-      if (mixTracks.isEmpty) mixTracks = List.from(fallbackCatalog);
+      if (mixTracks.isEmpty) {
+        mixTracks = fallbackCatalog.where((t) => !isSpamOrBotTrack(t)).toList();
+      }
+    }
+
+    // 3. Strictly deduplicate against previous mix tracks
+    if (excludedTrackIds != null && excludedTrackIds.isNotEmpty) {
+      mixTracks = mixTracks.where((t) {
+        final tid = t.youtubeVideoId ?? t.id;
+        return !excludedTrackIds.contains(tid);
+      }).toList();
     }
 
     // Build subtitle from top unique artists in the mix
@@ -227,7 +280,7 @@ class TasteProfileService {
         ? (mixTracks.first.highResThumbnailUrl.isNotEmpty
             ? mixTracks.first.highResThumbnailUrl
             : mixTracks.first.thumbnailUrl)
-        : anchor.highResThumbnailUrl;
+        : (anchor?.highResThumbnailUrl ?? '');
 
     final matcher = HifiMatcher();
     final enhancedTracks =
@@ -557,7 +610,9 @@ class TasteProfileService {
     final enhancedCatalog =
         catalog.map((t) => matcher.getCachedHiFi(t) ?? t).toList();
     final mix1Tracks = enhancedCatalog.take(4).toList();
-    final mix2Tracks = enhancedCatalog.reversed.take(4).toList();
+    final mix2Tracks = enhancedCatalog.length > 4
+        ? enhancedCatalog.skip(4).take(4).toList()
+        : _buildStarterChillTracks().take(4).toList();
 
     final starterChill = _buildStarterChillTracks();
     final cleanChillCatalog =

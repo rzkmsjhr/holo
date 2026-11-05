@@ -110,6 +110,40 @@ class FlacCacheService {
     return null;
   }
 
+  /// Returns the total size in bytes of all cached FLAC audio files
+  Future<int> getTotalCacheSizeBytes() async {
+    if (kIsWeb || _cacheDir == null) return 0;
+    int total = 0;
+    try {
+      if (await _cacheDir!.exists()) {
+        final entities = await _cacheDir!.list(recursive: true).toList();
+        for (final e in entities) {
+          if (e is File) {
+            total += await e.length();
+          }
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  /// Deletes all cached FLAC audio files and temporary downloads
+  Future<void> clearAllCache() async {
+    if (kIsWeb || _cacheDir == null) return;
+    try {
+      if (await _cacheDir!.exists()) {
+        final entities = await _cacheDir!.list().toList();
+        for (final e in entities) {
+          if (e is File) {
+            try {
+              await e.delete();
+            } catch (_) {}
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
   Future<void> _cleanupOldCache() async {
     if (_cacheDir == null || !await _cacheDir!.exists()) return;
     try {

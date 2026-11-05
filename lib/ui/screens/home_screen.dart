@@ -236,7 +236,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(width: 8),
                     _buildTrendingTabPill(
-                      label: 'Top 50 Indonesia',
+                      label: 'Top 50 ${player.trendingCountryName}',
                       index: 1,
                       count: player.indonesiaTrending.length,
                       isDark: isDark,

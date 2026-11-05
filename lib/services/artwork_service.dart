@@ -16,6 +16,44 @@ class ArtworkService {
   final YouTubeMusicService _ytmService = YouTubeMusicService();
   Timer? _persistDebounceTimer;
 
+  static const int _maxConcurrent = 2;
+  int _activeRequests = 0;
+  final List<({Completer<String?> completer, Future<String?> Function() task, bool isPriority})> _queue = [];
+
+  void _processNextQueueItem() {
+    if (_activeRequests >= _maxConcurrent || _queue.isEmpty) return;
+    _activeRequests++;
+    final item = _queue.removeAt(0);
+    item.task().then((result) {
+      if (!item.completer.isCompleted) {
+        item.completer.complete(result);
+      }
+    }).catchError((err) {
+      if (!item.completer.isCompleted) {
+        item.completer.complete(null);
+      }
+    }).whenComplete(() {
+      _activeRequests--;
+      Future.delayed(const Duration(milliseconds: 60), () {
+        _processNextQueueItem();
+      });
+    });
+  }
+
+  Future<String?> _scheduleNetworkFetch(
+    Future<String?> Function() task, {
+    bool isPriority = false,
+  }) {
+    final completer = Completer<String?>();
+    if (isPriority) {
+      _queue.insert(0, (completer: completer, task: task, isPriority: true));
+    } else {
+      _queue.add((completer: completer, task: task, isPriority: false));
+    }
+    _processNextQueueItem();
+    return completer.future;
+  }
+
   // Pre-compiled regular expressions for 0ms CPU execution
   static final RegExp _parensRegex = RegExp(r'\(.*?\)', caseSensitive: false);
   static final RegExp _bracketsRegex = RegExp(r'\[.*?\]', caseSensitive: false);
@@ -116,7 +154,10 @@ class ArtworkService {
       return _inFlight[key];
     }
 
-    final future = _fetchArtworkNetwork(artist, title, key, rawKey);
+    final future = _scheduleNetworkFetch(
+      () => _fetchArtworkNetwork(artist, title, key, rawKey),
+      isPriority: isIndonesian,
+    );
     _inFlight[key] = future;
 
     try {

@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/daily_mix.dart';
 import '../models/playlist.dart';
@@ -88,6 +91,9 @@ class PlayerProvider extends ChangeNotifier {
   // Settings
   bool _isEndlessPlay = true; // default on
   bool _isHifiEnabled = true; // default on
+  String _trendingCountryCode = 'id';
+  List<Track>? _unshuffledUpcoming;
+  Timer? _artworkNotifyDebounceTimer;
   bool _isFetchingEndless = false;
   bool _hasTrackCompleted = false;
   bool _isTransitioningTrack = false;
@@ -200,6 +206,110 @@ class PlayerProvider extends ChangeNotifier {
   static const String _lastTrackKey = 'holo_last_track_v2';
   static const String _lastQueueKey = 'holo_last_queue_v2';
   static const String _lastIndexKey = 'holo_last_index_v2';
+  static const String _settingHifiKey = 'holo_setting_hifi_enabled';
+  static const String _settingEndlessPlayKey = 'holo_setting_endless_play';
+  static const String _settingDarkModeKey = 'holo_setting_dark_mode';
+  static const String _settingShuffleKey = 'holo_setting_shuffle';
+  static const String _settingRepeatKey = 'holo_setting_repeat_mode';
+  static const String _settingTrendingCountryKey = 'holo_setting_trending_country';
+
+  String get trendingCountryCode => _trendingCountryCode;
+  String get trendingCountryName {
+    final match = kSupportedTrendingCountries
+        .where((c) => c.code == _trendingCountryCode)
+        .firstOrNull;
+    return match?.name ?? 'Indonesia';
+  }
+  String get trendingCountryFlag {
+    final match = kSupportedTrendingCountries
+        .where((c) => c.code == _trendingCountryCode)
+        .firstOrNull;
+    return match?.flag ?? '🇮🇩';
+  }
+  List<TrendingTrack> get regionalTrending => indonesiaTrending;
+
+  Future<void> setTrendingCountry(String code) async {
+    if (_trendingCountryCode == code) return;
+    _trendingCountryCode = code;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_settingTrendingCountryKey, code);
+    } catch (_) {}
+    notifyListeners();
+    await loadTrending();
+  }
+
+  Future<int> getCacheSizeBytes() async {
+    int total = await FlacCacheService().getTotalCacheSizeBytes();
+    try {
+      if (!kIsWeb) {
+        final tempDir = await getTemporaryDirectory();
+        if (await tempDir.exists()) {
+          await for (final file in tempDir.list(recursive: true, followLinks: false)) {
+            if (file is File) {
+              total += await file.length();
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return total;
+  }
+
+  Future<void> clearAllAppCache() async {
+    await FlacCacheService().clearAllCache();
+    try {
+      if (!kIsWeb) {
+        final tempDir = await getTemporaryDirectory();
+        if (await tempDir.exists()) {
+          final entities = await tempDir.list(recursive: false).toList();
+          for (final e in entities) {
+            try {
+              if (e is File) {
+                await e.delete();
+              } else if (e is Directory) {
+                await e.delete(recursive: true);
+              }
+            } catch (_) {}
+          }
+        }
+      }
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+    } catch (_) {}
+    notifyListeners();
+  }
+
+  static List<Track> spaceOutArtistTracks(
+    List<Track> tracks, {
+    String? currentPlayingArtist,
+  }) {
+    if (tracks.length <= 1) return List<Track>.from(tracks);
+    final result = <Track>[];
+    final remaining = List<Track>.from(tracks);
+    String? lastArtist = currentPlayingArtist?.toLowerCase().trim();
+
+    while (remaining.isNotEmpty) {
+      int nextIndex = -1;
+      for (int i = 0; i < remaining.length; i++) {
+        final artist = remaining[i].artist.toLowerCase().trim();
+        if (lastArtist == null || artist != lastArtist) {
+          nextIndex = i;
+          break;
+        }
+      }
+
+      if (nextIndex == -1) {
+        nextIndex = 0;
+      }
+
+      final chosen = remaining.removeAt(nextIndex);
+      result.add(chosen);
+      lastArtist = chosen.artist.toLowerCase().trim();
+    }
+    return result;
+  }
+
   List<Track> _likedTracks = [];
   List<Track> get likedTracks => _likedTracks;
 
@@ -228,8 +338,8 @@ class PlayerProvider extends ChangeNotifier {
     _initMediaNotificationHandler();
     _initConnectivity();
     _initAudioListeners();
-    _initHifiMatcher();
     _initFlacCache();
+    _initArtworkService();
     _initSavedPlayerState();
     _initPlaylists();
     _initLikedTracks();
@@ -238,7 +348,6 @@ class PlayerProvider extends ChangeNotifier {
     _startupTimer = Timer(const Duration(milliseconds: 350), () {
       _initTasteAndMixes();
       _initTrending();
-      _initArtworkService();
     });
   }
 
@@ -521,6 +630,14 @@ class PlayerProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
 
+      // Restore user settings
+      _isHifiEnabled = prefs.getBool(_settingHifiKey) ?? true;
+      _isEndlessPlay = prefs.getBool(_settingEndlessPlayKey) ?? true;
+      _isDarkMode = prefs.getBool(_settingDarkModeKey) ?? true;
+      _isShuffled = prefs.getBool(_settingShuffleKey) ?? false;
+      _repeatMode = (prefs.getInt(_settingRepeatKey) ?? 0).clamp(0, 2);
+      _trendingCountryCode = prefs.getString(_settingTrendingCountryKey) ?? 'id';
+
       // 1. Restore recently played
       final savedRecent = prefs.getString(_recentlyPlayedKey);
       if (savedRecent != null && savedRecent.isNotEmpty) {
@@ -562,6 +679,10 @@ class PlayerProvider extends ChangeNotifier {
         _position = Duration.zero;
         positionNotifier.value = Duration.zero;
         _isPlaying = false;
+      }
+
+      if (_isHifiEnabled) {
+        _initHifiMatcher();
       }
 
       notifyListeners();
@@ -714,7 +835,11 @@ class PlayerProvider extends ChangeNotifier {
     }
 
     if (changed) {
-      notifyListeners();
+      _artworkNotifyDebounceTimer?.cancel();
+      _artworkNotifyDebounceTimer =
+          Timer(const Duration(milliseconds: 250), () {
+        notifyListeners();
+      });
     }
   }
 
@@ -772,25 +897,64 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
-  void toggleTheme() {
+  void toggleTheme() async {
     _isDarkMode = !_isDarkMode;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_settingDarkModeKey, _isDarkMode);
+    } catch (_) {}
     notifyListeners();
   }
 
-  void toggleEndlessPlay([bool? value]) {
+  void toggleEndlessPlay([bool? value]) async {
     _isEndlessPlay = value ?? !_isEndlessPlay;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_settingEndlessPlayKey, _isEndlessPlay);
+    } catch (_) {}
     notifyListeners();
     if (_isEndlessPlay) {
       _triggerEndlessPlayIfNeeded();
     }
   }
 
-  void toggleHifi([bool? value]) {
+  void toggleHifi([bool? value]) async {
     _isHifiEnabled = value ?? !_isHifiEnabled;
-    notifyListeners();
-    if (_isHifiEnabled) {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_settingHifiKey, _isHifiEnabled);
+    } catch (_) {}
+
+    if (!_isHifiEnabled) {
+      if (_currentTrack != null && _currentTrack!.isLossless) {
+        final pos = _position;
+        final wasPlaying = _isPlaying;
+        final downgraded = _currentTrack!.copyWith(
+          flacStreamUrl: null,
+          audioSource: 'youtube',
+          isLossless: false,
+          audioFormat: 'YouTube Audio (160kbps)',
+        );
+        _currentTrack = downgraded;
+        if (wasPlaying) {
+          playTrack(downgraded, initialPosition: pos);
+        }
+      }
+      for (int i = 0; i < _queue.length; i++) {
+        if (_queue[i].isLossless) {
+          _queue[i] = _queue[i].copyWith(
+            flacStreamUrl: null,
+            audioSource: 'youtube',
+            isLossless: false,
+            audioFormat: 'YouTube Audio (160kbps)',
+          );
+        }
+      }
+    } else {
+      _initHifiMatcher();
       _resolveQueueHiFiInBackground();
     }
+    notifyListeners();
   }
 
   void toggleFavorite(Track track) {
@@ -914,8 +1078,13 @@ class PlayerProvider extends ChangeNotifier {
     _isLoadingMixes = true;
     notifyListeners();
     try {
+      final combinedCatalog = <Track>[
+        ...?_recentlyPlayed,
+        ..._likedTracks,
+        ..._queue,
+      ];
       final mixes =
-          await _tasteProfile.generateDailyMixes(fallbackCatalog: _queue);
+          await _tasteProfile.generateDailyMixes(fallbackCatalog: combinedCatalog);
       if (mixes.isNotEmpty) {
         _dailyMixes = mixes;
       }
@@ -930,9 +1099,9 @@ class PlayerProvider extends ChangeNotifier {
     notifyListeners();
     try {
       final g = await _trendingService.getTrending('global');
-      final id = await _trendingService.getTrending('indonesia');
+      final reg = await _trendingService.getTrending(_trendingCountryCode);
       _globalTrending = g;
-      _indonesiaTrending = id;
+      _indonesiaTrending = reg;
     } catch (_) {}
     _isLoadingTrending = false;
     notifyListeners();
@@ -1105,7 +1274,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   /// Condition 1: When a track is going to be played (at all states)
-  Future<void> playTrack(Track track) async {
+  Future<void> playTrack(Track track, {Duration? initialPosition}) async {
     _isAttemptingCandidateFallback = false;
     _failedCandidateIdsForTrack.clear();
     _failedTrackKey = null;
@@ -1144,8 +1313,8 @@ class PlayerProvider extends ChangeNotifier {
     _persistPlayerState();
     _triggerEndlessPlayIfNeeded();
     _duration = Duration(seconds: sanitizedTrack.durationSeconds);
-    _position = Duration.zero;
-    positionNotifier.value = Duration.zero;
+    _position = initialPosition ?? Duration.zero;
+    positionNotifier.value = _position;
     _isBuffering = true;
 
     _syncNotificationMediaItem(sanitizedTrack);
@@ -1477,6 +1646,9 @@ class PlayerProvider extends ChangeNotifier {
       } else {
         await _audioPlayer.setUrl(url);
       }
+      if (_position > Duration.zero) {
+        await _audioPlayer.seek(_position);
+      }
       logDebug('_playStream: audio source set. Setting volume and playing...');
       await _audioPlayer.setVolume(_volume);
       _isPlaying = true;
@@ -1504,7 +1676,7 @@ class PlayerProvider extends ChangeNotifier {
         _isBuffering = true;
         _playbackError = null;
         notifyListeners();
-        _ytIframeBridge.loadVideo(vid, startSeconds: 0, volume: _volume);
+        _ytIframeBridge.loadVideo(vid, startSeconds: _position.inSeconds, volume: _volume);
         return;
       }
       await _handlePlaybackFailure(e);
@@ -1745,6 +1917,9 @@ class PlayerProvider extends ChangeNotifier {
           !_vibeService.isSameArtist(nextTrack, _queue.last)) {
         final resolvedNext = _tagQueueEntry(await _resolveTrackForQueue(nextTrack));
         _queue.add(resolvedNext);
+        if (_unshuffledUpcoming != null) {
+          _unshuffledUpcoming!.add(resolvedNext);
+        }
         notifyListeners();
         _preResolveUpcomingQueue();
 
@@ -1760,6 +1935,9 @@ class PlayerProvider extends ChangeNotifier {
             !_vibeService.isSameArtist(secondTrack, _queue.last)) {
           final resolvedSecond = _tagQueueEntry(await _resolveTrackForQueue(secondTrack));
           _queue.add(resolvedSecond);
+          if (_unshuffledUpcoming != null) {
+            _unshuffledUpcoming!.add(resolvedSecond);
+          }
           notifyListeners();
           _preResolveUpcomingQueue();
         }
@@ -1906,13 +2084,60 @@ class PlayerProvider extends ChangeNotifier {
     playTrack(_queue[_currentIndex]);
   }
 
-  void toggleShuffle() {
+  void toggleShuffle() async {
     _isShuffled = !_isShuffled;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_settingShuffleKey, _isShuffled);
+    } catch (_) {}
+
+    if (_isShuffled) {
+      if (_queue.length > _currentIndex + 1) {
+        _unshuffledUpcoming = List<Track>.from(_queue.sublist(_currentIndex + 1));
+        final upcoming = List<Track>.from(_unshuffledUpcoming!);
+        upcoming.shuffle();
+        final spaced = spaceOutArtistTracks(
+          upcoming,
+          currentPlayingArtist: _currentTrack?.artist,
+        );
+        _queue = [
+          ..._queue.sublist(0, _currentIndex + 1),
+          ...spaced,
+        ];
+      }
+    } else {
+      if (_unshuffledUpcoming != null && _unshuffledUpcoming!.isNotEmpty) {
+        final currentUpcomingSet = _queue
+            .sublist(_currentIndex + 1)
+            .map((t) => t.queueEntryId)
+            .toSet();
+        final restored = _unshuffledUpcoming!
+            .where((t) => currentUpcomingSet.contains(t.queueEntryId))
+            .toList();
+        final restoredSet =
+            restored.map((t) => t.queueEntryId).toSet();
+        final additional = _queue
+            .sublist(_currentIndex + 1)
+            .where((t) => !restoredSet.contains(t.queueEntryId))
+            .toList();
+        _queue = [
+          ..._queue.sublist(0, _currentIndex + 1),
+          ...restored,
+          ...additional,
+        ];
+        _unshuffledUpcoming = null;
+      }
+    }
+    _persistPlayerState();
     notifyListeners();
   }
 
-  void toggleRepeat() {
+  void toggleRepeat() async {
     _repeatMode = (_repeatMode + 1) % 3;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(_settingRepeatKey, _repeatMode);
+    } catch (_) {}
     notifyListeners();
   }
 

@@ -1,4 +1,5 @@
 import '../widgets/holo_image.dart';
+import '../widgets/playlist_cover_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -807,10 +808,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     final heroPlaylist = player.recentPlaylist ?? playlists.first;
-    final heroCover = heroPlaylist.coverUrl ??
-        (heroPlaylist.tracks.isNotEmpty
-            ? heroPlaylist.tracks.first.highResThumbnailUrl
-            : null);
 
     return ListView(
       physics: const BouncingScrollPhysics(),
@@ -850,28 +847,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
             ),
             child: Row(
               children: [
-                ClipRRect(
+                PlaylistCoverPreview(
+                  playlist: heroPlaylist,
+                  width: 80,
+                  height: 80,
                   borderRadius: BorderRadius.circular(14),
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    color: AppColors.primary,
-                    child: heroCover != null && heroCover.isNotEmpty
-                        ? HoloImage(
-                            heroCover,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => const Icon(
-                              Icons.music_note_rounded,
-                              size: 40,
-                              color: Colors.white,
-                            ),
-                          )
-                        : const Icon(
-                            Icons.music_note_rounded,
-                            size: 40,
-                            color: Colors.white,
-                          ),
-                  ),
                 ),
                 const SizedBox(width: 16),
                 Expanded(
@@ -987,34 +967,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
         // Playlists List
         ...playlists.map((playlist) {
-          final cover = playlist.coverUrl ??
-              (playlist.tracks.isNotEmpty
-                  ? playlist.tracks.first.highResThumbnailUrl
-                  : null);
-
           return ListTile(
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-            leading: ClipRRect(
+            leading: PlaylistCoverPreview(
+              playlist: playlist,
+              width: 52,
+              height: 52,
               borderRadius: BorderRadius.circular(10),
-              child: Container(
-                width: 52,
-                height: 52,
-                color: AppColors.secondary,
-                child: cover != null && cover.isNotEmpty
-                    ? HoloImage(
-                        cover,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Icon(
-                          Icons.queue_music_rounded,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(
-                        Icons.queue_music_rounded,
-                        color: Colors.white,
-                      ),
-              ),
             ),
             title: Text(
               playlist.title,

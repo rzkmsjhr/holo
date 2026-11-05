@@ -7,26 +7,67 @@ import 'hifi_matcher.dart';
 import 'kworb_data_snapshot.dart';
 import 'youtube_music_service.dart';
 
+class TrendingCountry {
+  final String code;
+  final String name;
+  final String flag;
+
+  const TrendingCountry({
+    required this.code,
+    required this.name,
+    this.flag = '',
+  });
+}
+
+const List<TrendingCountry> kSupportedTrendingCountries = [
+  TrendingCountry(code: 'id', name: 'Indonesia', flag: '🇮🇩'),
+  TrendingCountry(code: 'us', name: 'United States', flag: '🇺🇸'),
+  TrendingCountry(code: 'gb', name: 'United Kingdom', flag: '🇬🇧'),
+  TrendingCountry(code: 'jp', name: 'Japan', flag: '🇯🇵'),
+  TrendingCountry(code: 'kr', name: 'South Korea', flag: '🇰🇷'),
+  TrendingCountry(code: 'my', name: 'Malaysia', flag: '🇲🇾'),
+  TrendingCountry(code: 'sg', name: 'Singapore', flag: '🇸🇬'),
+  TrendingCountry(code: 'ph', name: 'Philippines', flag: '🇵🇭'),
+  TrendingCountry(code: 'th', name: 'Thailand', flag: '🇹🇭'),
+  TrendingCountry(code: 'vn', name: 'Vietnam', flag: '🇻🇳'),
+  TrendingCountry(code: 'in', name: 'India', flag: '🇮🇳'),
+  TrendingCountry(code: 'au', name: 'Australia', flag: '🇦🇺'),
+  TrendingCountry(code: 'br', name: 'Brazil', flag: '🇧🇷'),
+  TrendingCountry(code: 'de', name: 'Germany', flag: '🇩🇪'),
+  TrendingCountry(code: 'fr', name: 'France', flag: '🇫🇷'),
+  TrendingCountry(code: 'ca', name: 'Canada', flag: '🇨🇦'),
+  TrendingCountry(code: 'mx', name: 'Mexico', flag: '🇲🇽'),
+  TrendingCountry(code: 'tw', name: 'Taiwan', flag: '🇹🇼'),
+];
+
 class TrendingService {
   final YouTubeMusicService _ytmService;
 
   static const String _globalUrl =
       'https://kworb.net/spotify/country/global_daily.html';
-  static const String _idUrl =
-      'https://kworb.net/spotify/country/id_daily.html';
   static const String _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
   // In-memory cache of resolved YouTube tracks for fast replay
   final Map<String, Track> _resolvedCache = {};
+  final Map<String, List<TrendingTrack>> _chartCache = {};
 
   TrendingService({YouTubeMusicService? ytmService})
       : _ytmService = ytmService ?? YouTubeMusicService();
 
-  /// Fetches top 50 trending songs for either 'global' or 'indonesia'
+  /// Fetches top 50 trending songs for either 'global' or a specific country code (e.g. 'id', 'us', 'jp')
   Future<List<TrendingTrack>> getTrending(String region) async {
-    final isGlobal = region.toLowerCase() != 'indonesia' && region.toLowerCase() != 'id';
-    final url = isGlobal ? _globalUrl : _idUrl;
+    final cleanRegion = region.trim().toLowerCase();
+    final isGlobal = cleanRegion == 'global' || cleanRegion.isEmpty;
+    final cacheKey = isGlobal ? 'global' : cleanRegion;
+
+    if (_chartCache.containsKey(cacheKey) && _chartCache[cacheKey]!.isNotEmpty) {
+      return _chartCache[cacheKey]!;
+    }
+
+    final url = isGlobal
+        ? _globalUrl
+        : 'https://kworb.net/spotify/country/${cleanRegion}_daily.html';
 
     try {
       final res = await HoloHttpClient.client.get(
@@ -40,16 +81,21 @@ class TrendingService {
 
       if (res.statusCode == 200 && res.bodyBytes.isNotEmpty) {
         final decodedHtml = TextEncodingUtils.decodeHttpBytes(res.bodyBytes);
-        final parsed = _parseKworbHtml(decodedHtml, isGlobal);
+        final parsed = _parseKworbHtml(decodedHtml, isGlobal, cleanRegion);
         if (parsed.isNotEmpty) {
+          _chartCache[cacheKey] = parsed;
           return parsed;
         }
       }
     } catch (_) {}
 
     // Fallback to real Kworb snapshot if network request fails or has CORS restrictions
-    final snapshot = isGlobal ? kGlobalTop50Snapshot : kIndonesiaTop50Snapshot;
-    return snapshot.map(TrendingTrack.fromMap).toList();
+    final snapshot = isGlobal
+        ? kGlobalTop50Snapshot
+        : (cleanRegion == 'id' ? kIndonesiaTop50Snapshot : kGlobalTop50Snapshot);
+    final fallbackList = snapshot.map(TrendingTrack.fromMap).toList();
+    _chartCache[cacheKey] = fallbackList;
+    return fallbackList;
   }
 
   /// Resolves a TrendingTrack to a playable Track with YouTube stream & album artwork
@@ -108,12 +154,14 @@ class TrendingService {
     return fallback;
   }
 
-  List<TrendingTrack> _parseKworbHtml(String html, bool isGlobal) {
+  List<TrendingTrack> _parseKworbHtml(String html, bool isGlobal, [String? region]) {
     final rowsRegex = RegExp(r'<tr[^>]*>(.*?)</tr>', dotAll: true);
     final tdRegex = RegExp(r'<td[^>]*>(.*?)</td>', dotAll: true);
     final tagStrip = RegExp(r'<[^>]+>');
 
-    final snapshot = isGlobal ? kGlobalTop50Snapshot : kIndonesiaTop50Snapshot;
+    final snapshot = isGlobal
+        ? kGlobalTop50Snapshot
+        : (region == 'id' ? kIndonesiaTop50Snapshot : kGlobalTop50Snapshot);
     final List<TrendingTrack> tracks = [];
 
     for (final rowMatch in rowsRegex.allMatches(html)) {

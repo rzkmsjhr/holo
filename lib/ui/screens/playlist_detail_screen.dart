@@ -1,4 +1,5 @@
 import '../widgets/holo_image.dart';
+import '../widgets/playlist_cover_preview.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
@@ -61,9 +62,6 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
         ),
       );
     }
-
-    final coverUrl = playlist.coverUrl ??
-        (playlist.tracks.isNotEmpty ? playlist.tracks.first.highResThumbnailUrl : null);
 
     return Scaffold(
       body: SafeArea(
@@ -155,44 +153,22 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   children: [
                     // Cover Art
                     Center(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: Container(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(22),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.3),
+                              blurRadius: 18,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: PlaylistCoverPreview(
+                          playlist: playlist,
                           width: 170,
                           height: 170,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [AppColors.secondary, Color(0xFF14171F)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.3),
-                                blurRadius: 18,
-                                offset: const Offset(0, 8),
-                              ),
-                            ],
-                          ),
-                          child: coverUrl != null && coverUrl.isNotEmpty
-                              ? HoloImage(
-                                  coverUrl,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => const Center(
-                                    child: Icon(
-                                      Icons.queue_music_rounded,
-                                      size: 72,
-                                      color: Colors.white70,
-                                    ),
-                                  ),
-                                )
-                              : const Center(
-                                  child: Icon(
-                                    Icons.queue_music_rounded,
-                                    size: 72,
-                                    color: Colors.white70,
-                                  ),
-                                ),
+                          borderRadius: BorderRadius.circular(22),
                         ),
                       ),
                     ),
