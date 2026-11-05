@@ -25,6 +25,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       _curvedAnim ?? const AlwaysStoppedAnimation(0.0);
 
   bool _isLyricsView = false;
+  bool _isUserScrollingLyrics = false;
   int _lastScrolledIndex = -1;
   String? _lastTrackId;
   final Map<int, GlobalKey> _lyricKeys = {};
@@ -50,6 +51,21 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
         curve: Curves.easeOutCubic,
         reverseCurve: Curves.easeInCubic,
       );
+      _animController!.addStatusListener((status) {
+        if (status == AnimationStatus.completed && mounted && _isLyricsView) {
+          // Re-verify alignment when transition finishes
+          final player = context.read<PlayerProvider>();
+          final lyrics = player.currentLyrics;
+          if (lyrics.isNotEmpty) {
+            final currentMs = player.position.inMilliseconds;
+            final activeIndex = lyrics.lastIndexWhere(
+                (l) => l.timestamp.inMilliseconds <= currentMs);
+            if (activeIndex >= 0) {
+              _scrollToCenter(activeIndex, immediate: false);
+            }
+          }
+        }
+      });
     }
   }
 
@@ -65,10 +81,24 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     if (_isLyricsView) return;
 
     _initAnimation();
-    _lyricKeys.clear();
     _lastScrolledIndex = -1;
     setState(() => _isLyricsView = true);
     _animController?.forward();
+
+    // Directly trigger immediate initial alignment so it doesn't wait for build or tick
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final player = context.read<PlayerProvider>();
+      final lyrics = player.currentLyrics;
+      if (lyrics.isNotEmpty) {
+        final currentMs = player.position.inMilliseconds;
+        final activeIndex = lyrics.lastIndexWhere(
+            (l) => l.timestamp.inMilliseconds <= currentMs);
+        if (activeIndex >= 0) {
+          _scrollToCenter(activeIndex, immediate: true);
+        }
+      }
+    });
   }
 
   void _showDebuggerLogsModal(BuildContext context, PlayerProvider player) {
@@ -165,32 +195,42 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     );
   }
 
-  void _scrollToCenter(int index) {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+  void _scrollToCenter(int index, {bool immediate = false}) {
+    if (index < 0) return;
+
+    void attemptScroll([int retries = 0]) {
+      if (!mounted || !_isLyricsView) return;
+
       final key = _lyricKeys[index];
-      if (key?.currentContext != null) {
+      final renderObject = key?.currentContext?.findRenderObject();
+
+      final isLayoutReady = key?.currentContext != null &&
+          renderObject is RenderBox &&
+          renderObject.hasSize &&
+          _lyricsScrollController.hasClients &&
+          _lyricsScrollController.position.hasContentDimensions;
+
+      if (isLayoutReady) {
+        if (_isUserScrollingLyrics && !immediate) return;
+
+        _lastScrolledIndex = index;
         Scrollable.ensureVisible(
           key!.currentContext!,
           alignment: 0.48, // Locks active lyric directly in the vertical center
-          duration: const Duration(milliseconds: 380),
+          duration:
+              immediate ? Duration.zero : const Duration(milliseconds: 380),
           curve: Curves.easeOutCubic,
         );
-      } else {
-        // Retry on next frame if context was being rendered
+      } else if (retries < 15) {
+        // Retry until the widget has completed layout (up to 15 frames / ~120-200ms)
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          final retryKey = _lyricKeys[index];
-          if (retryKey?.currentContext != null) {
-            Scrollable.ensureVisible(
-              retryKey!.currentContext!,
-              alignment: 0.48,
-              duration: const Duration(milliseconds: 380),
-              curve: Curves.easeOutCubic,
-            );
-          }
+          attemptScroll(retries + 1);
         });
       }
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      attemptScroll(0);
     });
   }
 
@@ -198,7 +238,10 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
     if (!_isLyricsView) return;
     _animController?.reverse().then((_) {
       if (mounted) {
-        setState(() => _isLyricsView = false);
+        setState(() {
+          _isLyricsView = false;
+          _lastScrolledIndex = -1;
+        });
       }
     });
   }
@@ -461,8 +504,8 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       if (_isLyricsView &&
           activeLyricIndex != _lastScrolledIndex &&
           activeLyricIndex >= 0) {
-        _lastScrolledIndex = activeLyricIndex;
-        _scrollToCenter(activeLyricIndex);
+        _scrollToCenter(activeLyricIndex,
+            immediate: _lastScrolledIndex == -1);
       }
     }
 
@@ -506,7 +549,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                       ),
 
                     // 2. Full Scrollable Lyrics View (Fades in and slides up from bottom)
-                    if (t > 0.01)
+                    if (_isLyricsView || t > 0.001)
                       RepaintBoundary(
                         child: Opacity(
                           opacity: t.clamp(0.0, 1.0),
@@ -522,7 +565,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                       ),
 
                     // 3. Compact Frosted Glass Top Bar Container (Slides down smoothly into place)
-                    if (t > 0.01)
+                    if (_isLyricsView || t > 0.001)
                       Positioned(
                         top: 10,
                         left: 14,
@@ -1736,6 +1779,13 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
     return NotificationListener<ScrollNotification>(
       onNotification: (notification) {
+        if (notification is ScrollStartNotification &&
+            notification.dragDetails != null) {
+          _isUserScrollingLyrics = true;
+        } else if (notification is ScrollEndNotification) {
+          _isUserScrollingLyrics = false;
+        }
+
         // If user pulls down past the top of the lyrics, smoothly return to player
         if (notification is ScrollUpdateNotification &&
             notification.metrics.pixels <= -15 &&
@@ -1767,8 +1817,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
               behavior: HitTestBehavior.opaque,
               onTap: () {
                 player.seekTo(line.timestamp);
-                _lastScrolledIndex = index;
-                _scrollToCenter(index);
+                _scrollToCenter(index, immediate: false);
               },
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 7),
