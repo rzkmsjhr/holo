@@ -494,10 +494,10 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
       _lyricKeys.clear();
     }
 
-    // Determine current active lyric line based on playback position
+    // Determine current active lyric line based on playback position + sync offset
     int activeLyricIndex = -1;
     if (lyrics.isNotEmpty) {
-      final currentMs = player.position.inMilliseconds;
+      final currentMs = player.effectiveLyricsPosition.inMilliseconds;
       activeLyricIndex = lyrics.lastIndexWhere(
           (l) => l.timestamp.inMilliseconds <= currentMs);
 
@@ -575,6 +575,25 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                             offset: Offset(0, -20 * (1.0 - t)),
                             child: _buildFrostedGlassTopBar(
                                 player, track, isDark, t),
+                          ),
+                        ),
+                      ),
+
+                    // 4. Floating Lyrics Sync Adjuster Capsule (Bottom Center)
+                    if ((_isLyricsView || t > 0.001) &&
+                        lyrics.isNotEmpty &&
+                        !player.isLoadingLyrics)
+                      Positioned(
+                        bottom: 22,
+                        left: 0,
+                        right: 0,
+                        child: Center(
+                          child: RepaintBoundary(
+                            child: Transform.translate(
+                              offset: Offset(0, 20 * (1.0 - t)),
+                              child: _buildFloatingLyricsSyncBar(
+                                  player, isDark, t, activeLyricIndex),
+                            ),
                           ),
                         ),
                       ),
@@ -1816,7 +1835,10 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
               key: itemKey,
               behavior: HitTestBehavior.opaque,
               onTap: () {
-                player.seekTo(line.timestamp);
+                final offsetMs = (player.lyricsSyncOffset * 1000).round();
+                final targetMs = (line.timestamp.inMilliseconds - offsetMs)
+                    .clamp(0, player.duration.inMilliseconds > 0 ? player.duration.inMilliseconds : 86400000);
+                player.seekTo(Duration(milliseconds: targetMs));
                 _scrollToCenter(index, immediate: false);
               },
               child: Padding(
@@ -1847,6 +1869,198 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
               ),
             );
           }),
+        ),
+      ),
+    );
+  }
+
+  // --- FLOATING LYRICS SYNC ADJUSTER CAPSULE ---
+  Widget _buildFloatingLyricsSyncBar(
+      PlayerProvider player, bool isDark, double t, int activeLyricIndex) {
+    final offset = player.lyricsSyncOffset;
+    final isOffsetNonZero = offset.abs() > 0.001;
+
+    String formatOffset(double s) {
+      if (s.abs() < 0.001) return '0.0s';
+      final sign = s > 0 ? '+' : '';
+      if ((s * 10).roundToDouble() == s * 10) {
+        return '$sign${s.toStringAsFixed(1)}s';
+      }
+      return '$sign${s.toStringAsFixed(2)}s';
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: (isDark ? 0.40 : 0.12) * t),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? const Color(0xFF141722).withValues(alpha: 0.72 * t)
+                  : Colors.white.withValues(alpha: 0.75 * t),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.16 * t)
+                    : Colors.black.withValues(alpha: 0.08 * t),
+                width: 1.0,
+              ),
+            ),
+            child: Opacity(
+              opacity: t.clamp(0.0, 1.0),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Subtle Sync label
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, right: 6),
+                    child: Text(
+                      'Sync:',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.65)
+                            : Colors.black.withValues(alpha: 0.60),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ),
+
+                  // Delay button (-)
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        player.adjustLyricsSyncOffset(-0.25);
+                        _isUserScrollingLyrics = false;
+                        if (activeLyricIndex >= 0) {
+                          _scrollToCenter(activeLyricIndex, immediate: false);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: Icon(
+                          Icons.remove_rounded,
+                          size: 16,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Offset readout
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: isOffsetNonZero
+                        ? () {
+                            player.resetLyricsSyncOffset();
+                            _isUserScrollingLyrics = false;
+                            if (activeLyricIndex >= 0) {
+                              _scrollToCenter(activeLyricIndex, immediate: false);
+                            }
+                          }
+                        : null,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 46),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      child: Text(
+                        formatOffset(offset),
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 0.2,
+                          color: isOffsetNonZero
+                              ? AppColors.primary
+                              : (isDark
+                                  ? Colors.white.withValues(alpha: 0.90)
+                                  : Colors.black87),
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Advance button (+)
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(16),
+                      onTap: () {
+                        player.adjustLyricsSyncOffset(0.25);
+                        _isUserScrollingLyrics = false;
+                        if (activeLyricIndex >= 0) {
+                          _scrollToCenter(activeLyricIndex, immediate: false);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.all(5),
+                        child: Icon(
+                          Icons.add_rounded,
+                          size: 16,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // Inline Reset action when non-zero
+                  if (isOffsetNonZero) ...[
+                    Container(
+                      height: 14,
+                      width: 1,
+                      margin: const EdgeInsets.symmetric(horizontal: 6),
+                      color: isDark
+                          ? Colors.white.withValues(alpha: 0.22)
+                          : Colors.black.withValues(alpha: 0.15),
+                    ),
+                    GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () {
+                        player.resetLyricsSyncOffset();
+                        _isUserScrollingLyrics = false;
+                        if (activeLyricIndex >= 0) {
+                          _scrollToCenter(activeLyricIndex, immediate: false);
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 3),
+                        child: Text(
+                          'Reset',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isDark
+                                ? Colors.white.withValues(alpha: 0.75)
+                                : Colors.black.withValues(alpha: 0.70),
+                            decoration: TextDecoration.underline,
+                            decorationColor: isDark
+                                ? Colors.white.withValues(alpha: 0.5)
+                                : Colors.black.withValues(alpha: 0.4),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
         ),
       ),
     );

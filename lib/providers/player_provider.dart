@@ -104,6 +104,8 @@ class PlayerProvider extends ChangeNotifier {
   bool? _hasSyncedLyrics = false;
   List<LyricLine>? _currentLyrics = [];
   bool? _isLoadingLyrics = false;
+  double _lyricsSyncOffset = 0.0;
+  SharedPreferences? _prefs;
 
   // Stream subscriptions
   StreamSubscription? _posSub;
@@ -167,6 +169,12 @@ class PlayerProvider extends ChangeNotifier {
   bool get hasSyncedLyrics => _hasSyncedLyrics ?? false;
   List<LyricLine> get currentLyrics => _currentLyrics ?? const [];
   bool get isLoadingLyrics => _isLoadingLyrics ?? false;
+  double get lyricsSyncOffset => _lyricsSyncOffset;
+  Duration get effectiveLyricsPosition {
+    final offsetMs = (_lyricsSyncOffset * 1000).round();
+    final effectiveMs = _position.inMilliseconds + offsetMs;
+    return Duration(milliseconds: effectiveMs < 0 ? 0 : effectiveMs);
+  }
   List<DailyMix> get dailyMixes => _dailyMixes ?? const [];
   bool get isLoadingMixes => _isLoadingMixes ?? false;
   List<TrendingTrack> get globalTrending {
@@ -335,6 +343,7 @@ class PlayerProvider extends ChangeNotifier {
     _ytResolver.onLog = logDebug;
     _ytIframeBridge.onLog = logDebug;
     logDebug('Pulse Audio Player initialized. Diagnostic logging active.');
+    SharedPreferences.getInstance().then((p) => _prefs = p, onError: (_) {});
     _initMediaNotificationHandler();
     _initConnectivity();
     _initAudioListeners();
@@ -629,6 +638,7 @@ class PlayerProvider extends ChangeNotifier {
 
     try {
       final prefs = await SharedPreferences.getInstance();
+      _prefs = prefs;
 
       // Restore user settings
       _isHifiEnabled = prefs.getBool(_settingHifiKey) ?? true;
@@ -679,6 +689,10 @@ class PlayerProvider extends ChangeNotifier {
         _position = Duration.zero;
         positionNotifier.value = Duration.zero;
         _isPlaying = false;
+      }
+
+      if (_currentTrack != null) {
+        await loadLyricsSyncForTrack(_currentTrack!);
       }
 
       if (_isHifiEnabled) {
@@ -1310,6 +1324,7 @@ class PlayerProvider extends ChangeNotifier {
       _currentIndex = 0;
       _currentTrack = tagged;
     }
+    await loadLyricsSyncForTrack(sanitizedTrack);
     _persistPlayerState();
     _triggerEndlessPlayIfNeeded();
     _duration = Duration(seconds: sanitizedTrack.durationSeconds);
@@ -2247,6 +2262,76 @@ class PlayerProvider extends ChangeNotifier {
         notifyListeners();
       }
     }
+  }
+
+  static String _lyricsSyncKeyForTrack(Track track) {
+    final cleanArtist =
+        track.artist.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    final cleanTitle =
+        track.title.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '_');
+    if (cleanArtist.isNotEmpty && cleanTitle.isNotEmpty) {
+      return 'lyrics_sync_${cleanArtist}_$cleanTitle';
+    }
+    return 'lyrics_sync_${track.youtubeVideoId ?? track.id}';
+  }
+
+  static String lyricsSyncKeyForTrack(Track track) =>
+      _lyricsSyncKeyForTrack(track);
+
+  int _lyricsSyncLoadGeneration = 0;
+
+  Future<void> loadLyricsSyncForTrack(Track track) async {
+    final gen = ++_lyricsSyncLoadGeneration;
+    final key = _lyricsSyncKeyForTrack(track);
+
+    if (_prefs != null) {
+      _lyricsSyncOffset = _prefs!.getDouble(key) ?? 0.0;
+      return;
+    }
+
+    _lyricsSyncOffset = 0.0;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _prefs = prefs;
+      if (gen != _lyricsSyncLoadGeneration) return;
+      final val = prefs.getDouble(key) ?? 0.0;
+      if ((val - _lyricsSyncOffset).abs() > 0.001) {
+        _lyricsSyncOffset = val;
+        notifyListeners();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> setLyricsSyncOffset(double seconds, {Track? forTrack}) async {
+    final clamped =
+        double.parse(seconds.clamp(-30.0, 30.0).toStringAsFixed(2));
+    _lyricsSyncLoadGeneration++;
+    if ((_lyricsSyncOffset - clamped).abs() < 0.001) return;
+    _lyricsSyncOffset = clamped;
+    notifyListeners();
+
+    final targetTrack = forTrack ?? _currentTrack;
+    if (targetTrack != null) {
+      try {
+        final prefs = _prefs ?? await SharedPreferences.getInstance();
+        _prefs = prefs;
+        final key = _lyricsSyncKeyForTrack(targetTrack);
+        if (clamped == 0.0) {
+          await prefs.remove(key);
+        } else {
+          await prefs.setDouble(key, clamped);
+        }
+      } catch (_) {}
+    }
+  }
+
+  Future<void> adjustLyricsSyncOffset(double deltaSeconds) async {
+    await setLyricsSyncOffset(
+        ((_lyricsSyncOffset + deltaSeconds) * 100).round() / 100.0);
+  }
+
+  Future<void> resetLyricsSyncOffset() async {
+    await setLyricsSyncOffset(0.0);
   }
 
   Future<void> retryCurrentTrack() async {
