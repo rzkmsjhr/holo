@@ -1029,20 +1029,17 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                               willBeFav
                                                   ? 'Added to Liked Songs'
                                                   : 'Removed from Liked Songs',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w600,
-                                              ),
+                                              style: willBeFav
+                                                  ? const TextStyle(
+                                                      color: Colors.white,
+                                                      fontWeight: FontWeight.w600,
+                                                    )
+                                                  : null,
                                             ),
                                             duration: const Duration(seconds: 2),
                                             backgroundColor: willBeFav
                                                 ? AppColors.primary
-                                                : const Color(0xFF1B1E28),
-                                            behavior:
-                                                SnackBarBehavior.floating,
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                            ),
+                                                : null,
                                           ),
                                         );
                                       },

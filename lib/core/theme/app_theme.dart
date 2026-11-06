@@ -75,6 +75,26 @@ class AppTheme {
           borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
       ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.darkSurfaceElevated,
+        contentTextStyle: GoogleFonts.plusJakartaSans(
+          color: AppColors.darkTextPrimary,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+        ),
+        actionTextColor: AppColors.primary,
+        closeIconColor: AppColors.darkTextSecondary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(
+            color: AppColors.darkBorder,
+            width: 1.0,
+          ),
+        ),
+        elevation: 6,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      ),
     );
   }
 
@@ -119,6 +139,26 @@ class AppTheme {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
         ),
+      ),
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.lightSurface,
+        contentTextStyle: GoogleFonts.plusJakartaSans(
+          color: AppColors.lightTextPrimary,
+          fontSize: 13.5,
+          fontWeight: FontWeight.w600,
+        ),
+        actionTextColor: AppColors.primary,
+        closeIconColor: AppColors.lightTextSecondary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: const BorderSide(
+            color: AppColors.lightBorder,
+            width: 1.0,
+          ),
+        ),
+        elevation: 6,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       ),
     );
   }

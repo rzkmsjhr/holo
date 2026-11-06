@@ -134,7 +134,6 @@ class _ArtistScreenState extends State<ArtistScreen> {
       SnackBar(
         content: Text('Loading "${release.title}" tracks...'),
         duration: const Duration(seconds: 1),
-        backgroundColor: const Color(0xFF1B1E28),
       ),
     );
 
@@ -148,7 +147,13 @@ class _ArtistScreenState extends State<ArtistScreen> {
       player.playTrackList(albumSongs, 0);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Playing album "${release.title}"'),
+          content: Text(
+            'Playing album "${release.title}"',
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           duration: const Duration(seconds: 2),
           backgroundColor: AppColors.primary,
         ),
@@ -727,7 +732,6 @@ class _ArtistScreenState extends State<ArtistScreen> {
                       SnackBar(
                         content: Text('Started radio for ${details.name}'),
                         duration: const Duration(seconds: 2),
-                        backgroundColor: const Color(0xFF1B1E28),
                       ),
                     );
                   },
