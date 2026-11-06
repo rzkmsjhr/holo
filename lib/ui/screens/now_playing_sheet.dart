@@ -531,6 +531,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                     }
                   },
                   child: Stack(
+                    fit: StackFit.expand,
                     children: [
                     // 1. Full Player View (Fades out and translates slightly up)
                     if (t < 0.99)
@@ -550,15 +551,17 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
 
                     // 2. Full Scrollable Lyrics View (Fades in and slides up from bottom)
                     if (_isLyricsView || t > 0.001)
-                      RepaintBoundary(
-                        child: Opacity(
-                          opacity: t.clamp(0.0, 1.0),
-                          child: Transform.translate(
-                            offset: Offset(0, 40 * (1.0 - t)),
-                            child: IgnorePointer(
-                              ignoring: t < 0.5,
-                              child: _buildLyricsView(player, isDark,
-                                  activeLyricIndex, screenHeight),
+                      Positioned.fill(
+                        child: RepaintBoundary(
+                          child: Opacity(
+                            opacity: t.clamp(0.0, 1.0),
+                            child: Transform.translate(
+                              offset: Offset(0, 40 * (1.0 - t)),
+                              child: IgnorePointer(
+                                ignoring: t < 0.5,
+                                child: _buildLyricsView(player, isDark,
+                                    activeLyricIndex, screenHeight),
+                              ),
                             ),
                           ),
                         ),
@@ -580,20 +583,16 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                       ),
 
                     // 4. Floating Lyrics Sync Adjuster Capsule (Bottom Center)
-                    if ((_isLyricsView || t > 0.001) &&
-                        lyrics.isNotEmpty &&
-                        !player.isLoadingLyrics)
+                    if (_isLyricsView || t > 0.001)
                       Positioned(
-                        bottom: 22,
+                        bottom: 26,
                         left: 0,
                         right: 0,
                         child: Center(
-                          child: RepaintBoundary(
-                            child: Transform.translate(
-                              offset: Offset(0, 20 * (1.0 - t)),
-                              child: _buildFloatingLyricsSyncBar(
-                                  player, isDark, t, activeLyricIndex),
-                            ),
+                          child: Transform.translate(
+                            offset: Offset(0, 20 * (1.0 - t)),
+                            child: _buildFloatingLyricsSyncBar(
+                                player, isDark, t, activeLyricIndex),
                           ),
                         ),
                       ),
@@ -1416,6 +1415,31 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                           : AppColors.lightTextSecondary,
                                     ),
                                   ),
+                                  if (player.lyricsSyncOffset.abs() > 0.001) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary
+                                            .withValues(alpha: 0.20),
+                                        borderRadius: BorderRadius.circular(5),
+                                        border: Border.all(
+                                          color: AppColors.primary
+                                              .withValues(alpha: 0.40),
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Sync ${player.lyricsSyncOffset > 0 ? '+' : ''}${player.lyricsSyncOffset}s',
+                                        style: const TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ] else ...[
                                   const Icon(
                                     Icons.lyrics_outlined,
@@ -1434,6 +1458,31 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                           : AppColors.lightTextSecondary,
                                     ),
                                   ),
+                                  if (player.lyricsSyncOffset.abs() > 0.001) ...[
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 5, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary
+                                            .withValues(alpha: 0.20),
+                                        borderRadius: BorderRadius.circular(5),
+                                        border: Border.all(
+                                          color: AppColors.primary
+                                              .withValues(alpha: 0.40),
+                                          width: 0.8,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        'Sync ${player.lyricsSyncOffset > 0 ? '+' : ''}${player.lyricsSyncOffset}s',
+                                        style: const TextStyle(
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppColors.primary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ],
                             ),
@@ -1894,9 +1943,9 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: (isDark ? 0.40 : 0.12) * t),
+            color: Colors.black.withValues(alpha: isDark ? 0.45 : 0.16),
             blurRadius: 18,
-            offset: const Offset(0, 6),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1908,18 +1957,18 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
               color: isDark
-                  ? const Color(0xFF141722).withValues(alpha: 0.72 * t)
-                  : Colors.white.withValues(alpha: 0.75 * t),
+                  ? const Color(0xFF1B1E2B).withValues(alpha: 0.94)
+                  : Colors.white.withValues(alpha: 0.96),
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
                 color: isDark
-                    ? Colors.white.withValues(alpha: 0.16 * t)
-                    : Colors.black.withValues(alpha: 0.08 * t),
-                width: 1.0,
+                    ? Colors.white.withValues(alpha: 0.18)
+                    : Colors.black.withValues(alpha: 0.10),
+                width: 1.2,
               ),
             ),
             child: Opacity(
-              opacity: t.clamp(0.0, 1.0),
+              opacity: _isLyricsView ? 1.0 : t.clamp(0.0, 1.0),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.center,
