@@ -55,6 +55,7 @@ jobs:
   build-ios:
     name: Build iOS Sideloadable IPA
     runs-on: macos-14
+    continue-on-error: true
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -117,6 +118,7 @@ jobs:
 
   publish-release:
     name: Publish GitHub Release
+    if: always() && needs.build-android.result == 'success'
     needs: [build-android, build-ios]
     runs-on: ubuntu-latest
     steps:
@@ -141,6 +143,7 @@ jobs:
           path: release-assets
 
       - name: Download iOS IPA
+        if: needs.build-ios.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: pulse-audio-ios-ipa
@@ -157,7 +160,7 @@ jobs:
           prerelease: false
           files: |
             release-assets/pulse-audio-release.apk
-            release-assets/pulse-audio-sideload.ipa
+            release-assets/*.ipa
           body: |
             ### Pulse Audio Mobile Release (${{ steps.release_meta.outputs.TAG }})
 

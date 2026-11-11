@@ -41,22 +41,22 @@ void main() {
 
       // Simulate populating cache for canonical track
       SharedPreferences.setMockInitialValues({
-        'artwork_cache_v3': '{"daft punk - one more time":"https://example.com/daftpunk.jpg"}',
+        'artwork_cache_v5_clean': '{"daft punk - one more time":"https://is1-ssl.mzstatic.com/image/thumb/Music/daftpunk.jpg"}',
       });
       final service2 = ArtworkService();
       await service2.init();
 
       // Retrieve via canonical name
       final art1 = service2.getCached('Daft Punk', 'One More Time');
-      expect(art1, equals('https://example.com/daftpunk.jpg'));
+      expect(art1, equals('https://is1-ssl.mzstatic.com/image/thumb/Music/daftpunk.jpg'));
 
       // Retrieve via variant name (Radio Edit)
       final art2 = service2.getCached('Daft Punk', 'One More Time (Radio Edit)');
-      expect(art2, equals('https://example.com/daftpunk.jpg'));
+      expect(art2, equals('https://is1-ssl.mzstatic.com/image/thumb/Music/daftpunk.jpg'));
 
       // Retrieve via Topic channel variant
       final art3 = service2.getCached('Daft Punk - Topic', 'One More Time');
-      expect(art3, equals('https://example.com/daftpunk.jpg'));
+      expect(art3, equals('https://is1-ssl.mzstatic.com/image/thumb/Music/daftpunk.jpg'));
     });
 
     test('Track model holds highResThumbnailUrl and toHighResUrl correctly upgrades', () {

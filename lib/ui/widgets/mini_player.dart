@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../providers/player_provider.dart';
+import '../../services/artwork_service.dart';
 import '../screens/now_playing_sheet.dart';
 
 class MiniPlayer extends StatelessWidget {
@@ -77,17 +78,21 @@ class MiniPlayer extends StatelessWidget {
                         child: Builder(builder: (context) {
                           final cachedArt =
                               player.getArtwork(track.artist, track.title);
-                          final art = (cachedArt != null && cachedArt.isNotEmpty)
-                              ? cachedArt
-                              : (track.highResThumbnailUrl.isNotEmpty
-                                  ? track.highResThumbnailUrl
-                                  : (track.thumbnailUrl.isNotEmpty
-                                      ? track.thumbnailUrl
-                                      : null));
+                          final hasSquareTrackArt =
+                              ArtworkService.isSquareAlbumArtworkUrl(track.highResThumbnailUrl);
+                          final art = hasSquareTrackArt
+                              ? track.highResThumbnailUrl
+                              : ((cachedArt != null && cachedArt.isNotEmpty)
+                                  ? cachedArt
+                                  : (track.highResThumbnailUrl.isNotEmpty
+                                      ? track.highResThumbnailUrl
+                                      : (track.thumbnailUrl.isNotEmpty
+                                          ? track.thumbnailUrl
+                                          : null)));
 
                           final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
                               !track.thumbnailUrl.contains('unsplash.com');
-                          if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
+                          if (!hasSquareTrackArt && (cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                             player.resolveArtworkFor(track.artist, track.title);
                           }
 

@@ -1007,6 +1007,7 @@ class PlayerProvider extends ChangeNotifier {
   Track? getCachedHiFi(Track track) => _hifiMatcher.getCachedHiFi(track);
 
   int _queueLoadGeneration = 0;
+  int _playGeneration = 0;
 
   /// Unified Pre-Queue FLAC Resolution Gate
   /// Ensures any track is verified and elevated to FLAC before being queued.
@@ -1289,6 +1290,7 @@ class PlayerProvider extends ChangeNotifier {
 
   /// Condition 1: When a track is going to be played (at all states)
   Future<void> playTrack(Track track, {Duration? initialPosition}) async {
+    final myPlayGen = ++_playGeneration;
     _isAttemptingCandidateFallback = false;
     _failedCandidateIdsForTrack.clear();
     _failedTrackKey = null;
@@ -1325,6 +1327,8 @@ class PlayerProvider extends ChangeNotifier {
       _currentTrack = tagged;
     }
     await loadLyricsSyncForTrack(sanitizedTrack);
+    if (myPlayGen != _playGeneration) return;
+
     _persistPlayerState();
     _triggerEndlessPlayIfNeeded();
     _duration = Duration(seconds: sanitizedTrack.durationSeconds);
@@ -1335,10 +1339,11 @@ class PlayerProvider extends ChangeNotifier {
     _syncNotificationMediaItem(sanitizedTrack);
     _syncNotificationPlaybackState();
 
-    // Resolve missing artwork in background
-    if (sanitizedTrack.thumbnailUrl.isEmpty) {
+    // Resolve missing artwork in background only if current artwork is not already square CDN artwork
+    if (!ArtworkService.isSquareAlbumArtworkUrl(sanitizedTrack.thumbnailUrl)) {
       _artworkService.getArtwork(sanitizedTrack.artist, sanitizedTrack.title).then((art) {
-        if (art != null && art.isNotEmpty) {
+        if (myPlayGen != _playGeneration) return;
+        if (art != null && art.isNotEmpty && ArtworkService.isSquareAlbumArtworkUrl(art)) {
           final withArt = sanitizedTrack.copyWith(thumbnailUrl: art);
           if (_currentTrack?.id == sanitizedTrack.id) {
             _currentTrack = _currentTrack!.copyWith(thumbnailUrl: art);
@@ -1349,8 +1354,6 @@ class PlayerProvider extends ChangeNotifier {
           _updateAllMatchingTrackArtworks(sanitizedTrack.artist, sanitizedTrack.title, art);
         }
       });
-    } else {
-      resolveArtworkFor(sanitizedTrack.artist, sanitizedTrack.title);
     }
 
     // Check lyrics: load instantly from memory/disk cache if available
@@ -1374,6 +1377,7 @@ class PlayerProvider extends ChangeNotifier {
         sanitizedTrack.flacStreamUrl!.isNotEmpty &&
         (_isHifiEnabled ? sanitizedTrack.isLossless || sanitizedTrack.audioSource == 'youtube' : !sanitizedTrack.isLossless)) {
       await _playStream(sanitizedTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
+      if (myPlayGen != _playGeneration) return;
       _triggerEndlessPlayIfNeeded();
       _preResolveUpcomingQueue();
       return;
@@ -1388,6 +1392,7 @@ class PlayerProvider extends ChangeNotifier {
         artist: sanitizedTrack.artist,
         primaryVideoId: vId,
       );
+      if (myPlayGen != _playGeneration) return;
 
       if (ytRes.isSuccess && ytRes.url != null) {
         final ytTrack = sanitizedTrack.copyWith(
@@ -1402,8 +1407,10 @@ class PlayerProvider extends ChangeNotifier {
         _updateRecentlyPlayed(ytTrack);
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
+        if (myPlayGen != _playGeneration) return;
       } else {
         final online = await ConnectivityService().checkConnectivity();
+        if (myPlayGen != _playGeneration) return;
         _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
@@ -1431,6 +1438,7 @@ class PlayerProvider extends ChangeNotifier {
       const Duration(milliseconds: 7000),
       onTimeout: () => null,
     );
+    if (myPlayGen != _playGeneration) return;
     _isHifiResolving = false;
 
     if (hifiTrack != null && hifiTrack.flacStreamUrl != null) {
@@ -1442,9 +1450,11 @@ class PlayerProvider extends ChangeNotifier {
       _syncNotificationMediaItem(hifiTrack);
       notifyListeners();
       await _playStream(hifiTrack.flacStreamUrl!, fallbackYtTrack: sanitizedTrack);
+      if (myPlayGen != _playGeneration) return;
     } else {
       // If Hi-Fi finished later, cache it for replay
       hifiFuture.then((lateHifi) {
+        if (myPlayGen != _playGeneration) return;
         if (lateHifi != null && lateHifi.flacStreamUrl != null) {
           _updateTrackInQueue(lateHifi);
           _updateRecentlyPlayed(lateHifi);
@@ -1454,6 +1464,7 @@ class PlayerProvider extends ChangeNotifier {
 
       // Immediate fallback: YouTube stream was already resolving in parallel!
       final ytRes = await ytFuture;
+      if (myPlayGen != _playGeneration) return;
 
       if (ytRes.isSuccess && ytRes.url != null) {
         final ytTrack = sanitizedTrack.copyWith(
@@ -1469,8 +1480,10 @@ class PlayerProvider extends ChangeNotifier {
         _syncNotificationMediaItem(ytTrack);
         notifyListeners();
         await _playStream(ytRes.url!, fallbackYtTrack: ytTrack);
+        if (myPlayGen != _playGeneration) return;
       } else {
         final online = await ConnectivityService().checkConnectivity();
+        if (myPlayGen != _playGeneration) return;
         _playbackError = !online
             ? 'No internet connection. Reconnect to stream.'
             : (ytRes.errorMessage ?? 'Unable to find a playable stream for "${sanitizedTrack.title}". Tap to retry.');
@@ -1996,6 +2009,7 @@ class PlayerProvider extends ChangeNotifier {
   }
 
   Future<void> stopPlayback() async {
+    _playGeneration++;
     _ytIframeBridge.stop();
     _isUsingYtIframe = false;
     try {
@@ -2240,6 +2254,17 @@ class PlayerProvider extends ChangeNotifier {
     }
   }
 
+  bool _isSameTrack(Track a, Track b) {
+    if (a.id == b.id) return true;
+    if (a.youtubeVideoId != null &&
+        b.youtubeVideoId != null &&
+        a.youtubeVideoId == b.youtubeVideoId) {
+      return true;
+    }
+    return HifiMatcher.cleanString(a.artist) == HifiMatcher.cleanString(b.artist) &&
+        HifiMatcher.cleanString(a.title) == HifiMatcher.cleanString(b.title);
+  }
+
   Future<void> _checkLyricsForTrack(Track track) async {
     try {
       final lyrics = await _lyricsService.fetchLyrics(
@@ -2248,14 +2273,14 @@ class PlayerProvider extends ChangeNotifier {
         durationSeconds: track.durationSeconds,
         youtubeVideoId: track.youtubeVideoId,
       );
-      if (_currentTrack?.id == track.id) {
+      if (_currentTrack != null && _isSameTrack(_currentTrack!, track)) {
         _currentLyrics = lyrics;
         _hasSyncedLyrics = lyrics.isNotEmpty;
         _isLoadingLyrics = false;
         notifyListeners();
       }
     } catch (_) {
-      if (_currentTrack?.id == track.id) {
+      if (_currentTrack != null && _isSameTrack(_currentTrack!, track)) {
         _currentLyrics = [];
         _hasSyncedLyrics = false;
         _isLoadingLyrics = false;

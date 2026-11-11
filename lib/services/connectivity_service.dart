@@ -60,8 +60,9 @@ class ConnectivityService with WidgetsBindingObserver {
     final wasInForeground = _isInForeground;
     _isInForeground = state == AppLifecycleState.resumed;
     if (!wasInForeground && _isInForeground) {
-      // Reset failure counter on wake and verify silently
+      // Reset failure counter on wake, recycle stale sockets, and verify silently
       _consecutiveFailures = 0;
+      HoloHttpClient.resetConnections();
       if (_currentStatus == ConnectivityStatus.offline) {
         markOnline();
       }
@@ -72,6 +73,7 @@ class ConnectivityService with WidgetsBindingObserver {
     _consecutiveFailures = 0;
     if (_currentStatus != ConnectivityStatus.online) {
       _currentStatus = ConnectivityStatus.online;
+      HoloHttpClient.resetConnections();
       _statusController.add(_currentStatus);
     }
   }

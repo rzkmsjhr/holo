@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
+import 'connectivity_service.dart';
 import 'flac_cache_service.dart';
 import 'kuwo_service.dart';
 import 'monochrome_service.dart';
@@ -45,10 +46,21 @@ class EditionMatrix {
     r'\b(originally\s*performed\s*by|made\s*popular\s*by|in\s*the\s*style\s*of|tribute\s*version|tribute\s*to)\b|[\(\[\{]\s*cover\s*[\)\]\}]|\s+-\s+cover\b',
     caseSensitive: false,
   );
+  static final RegExp cnMediaTieInRegex = RegExp(
+    r'(?:\s*[-—–]\s*)?《[^》]+》\s*(?:动画|电影|电视剧|网剧|动漫|游戏|影视|综艺|纪录片|舞台剧|音乐剧|广播剧|剧集)*\s*(?:主题曲|插曲|片尾曲|片头曲|推广曲|宣传曲|原声|配乐|背景音乐|概念曲|印象曲|片中曲|同名曲|ost)*',
+    caseSensitive: false,
+  );
 
   static Set<EditionKind> detect(String title, [String? album]) {
     final editions = <EditionKind>{};
-    final text = album != null && album.isNotEmpty ? '$title $album' : title;
+    final isAlbumSoundtrack =
+        album != null && soundtrackRegex.hasMatch(album);
+    final effectiveTitle = !isAlbumSoundtrack
+        ? title.replaceAll(cnMediaTieInRegex, '')
+        : title;
+    final text = album != null && album.isNotEmpty
+        ? '$effectiveTitle $album'
+        : effectiveTitle;
 
     if (remixRegex.hasMatch(text)) editions.add(EditionKind.remix);
     if (liveRegex.hasMatch(text)) editions.add(EditionKind.live);
@@ -76,14 +88,17 @@ class HifiMatcher {
   final KuwoService _kuwoService = KuwoService();
   final MonochromeService _monochromeService = MonochromeService();
 
-  /// Matcher version 12 - matching nadanada v12 specification
-  static const int matcherVersion = 12;
-  static const String _storageKey = 'holo_hifi_cache_v12';
+  /// Matcher version 13 - matching nadanada v13 specification
+  static const int matcherVersion = 13;
+  static const String _storageKey = 'holo_hifi_cache_v13';
   static const List<String> _legacyStorageKeys = [
     'holo_hifi_cache',
     'holo_hifi_cache_v2',
     'holo_hifi_cache_v11',
+    'holo_hifi_cache_v12',
   ];
+
+  static RegExp get cnMediaTieInRegex => EditionMatrix.cnMediaTieInRegex;
 
   bool _isInitialized = false;
 
@@ -132,17 +147,53 @@ class HifiMatcher {
     }).catchError((_) {});
   }
 
+  static Track _mergeHiFiOntoTrack(Track target, Track resolvedHiFi) {
+    return target.copyWith(
+      album: target.album.trim().isNotEmpty ? target.album : resolvedHiFi.album,
+      thumbnailUrl: target.thumbnailUrl.trim().isNotEmpty
+          ? target.thumbnailUrl
+          : resolvedHiFi.thumbnailUrl,
+      flacStreamUrl: resolvedHiFi.flacStreamUrl,
+      audioSource: resolvedHiFi.audioSource,
+      isLossless: resolvedHiFi.isLossless,
+      audioFormat: resolvedHiFi.audioFormat,
+      extraData: {
+        ...?target.extraData,
+        ...?resolvedHiFi.extraData,
+        'hifiVersion': matcherVersion,
+        'hifiChecked': true,
+      },
+    );
+  }
+
   /// Synchronously checks if a track has a cached or downloaded Hi-Fi FLAC stream.
   Track? getCachedHiFi(Track track) {
     final trackIdKey = track.youtubeVideoId ?? track.id;
+    Track? hit;
     if (_resolutionCache.containsKey(trackIdKey)) {
-      return _resolutionCache[trackIdKey];
+      hit = _resolutionCache[trackIdKey];
+    } else {
+      final textKey =
+          '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
+      if (_resolutionCache.containsKey(textKey)) {
+        hit = _resolutionCache[textKey];
+      }
     }
+
+    if (hit != null) {
+      final targetAlbum = track.album.trim();
+      final needsAlbumUpgrade = targetAlbum.isNotEmpty &&
+          hit.extraData?['resolvedWithAlbum'] != true;
+      if (!needsAlbumUpgrade &&
+          hit.isLossless &&
+          hit.flacStreamUrl != null &&
+          hit.flacStreamUrl!.isNotEmpty) {
+        return _mergeHiFiOntoTrack(track, hit);
+      }
+    }
+
     final textKey =
         '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
-    if (_resolutionCache.containsKey(textKey)) {
-      return _resolutionCache[textKey];
-    }
     final localPath = FlacCacheService().getCachedFilePath(trackIdKey) ??
         FlacCacheService().getCachedFilePath(textKey);
     if (localPath != null) {
@@ -155,6 +206,7 @@ class HifiMatcher {
           ...?track.extraData,
           'hifiVersion': matcherVersion,
           'isLocalCache': true,
+          'hifiChecked': true,
         },
       );
     }
@@ -201,11 +253,6 @@ class HifiMatcher {
     // Check cache
     final cached = getCachedHiFi(track);
     if (cached != null && cached.flacStreamUrl != null && cached.flacStreamUrl!.isNotEmpty) {
-      final cachedWithAlbum = cached.extraData?['resolvedWithAlbum'] == true;
-      final currentHasAlbum = track.album.trim().isNotEmpty;
-      if (currentHasAlbum && !cachedWithAlbum) {
-        return track;
-      }
       return cached;
     }
 
@@ -234,6 +281,8 @@ class HifiMatcher {
     'kuwo_238687094',
     '238687044',          // Kuwo: Imagine Dragons - Demons (TELYKast Remix on Super Deluxe)
     'kuwo_238687044',
+    '662121810',          // Kuwo: Bon Jovi - It's My Life (2003 acoustic/piano remake mislabeled as original on Himnos Millennials)
+    'kuwo_662121810',
   };
 
   static const List<String> videoKeywords = [
@@ -338,6 +387,7 @@ class HifiMatcher {
   /// Normalizes a string for robust cross-language fuzzy title/artist matching.
   static String cleanString(String str) {
     var lower = str.toLowerCase();
+    lower = lower.replaceAll(EditionMatrix.cnMediaTieInRegex, ' ');
     lower = lower.replaceAll(_featRegex, '');
     lower = lower.replaceAll(_bracketsRegex, '');
     lower = TextEncodingUtils.cleanMojibake(lower);
@@ -354,7 +404,8 @@ class HifiMatcher {
 
   /// Strips YouTube video tags for query building.
   String cleanTitle(String title) {
-    var lower = title.replaceAll(_trailingMeta, ' ');
+    var lower = title.replaceAll(EditionMatrix.cnMediaTieInRegex, ' ');
+    lower = lower.replaceAll(_trailingMeta, ' ');
     lower = lower.replaceAll(_youtubeNoiseRegex, ' ');
     lower = lower.replaceAll(_bracketsRegex, ' ');
     lower = lower.replaceAll(_trailingSeparators, ' ');
@@ -497,6 +548,46 @@ class HifiMatcher {
     }
 
     return true;
+  }
+
+  /// Structural check to verify if a candidate track's title matches or is an acceptable alias
+  /// of the target title without relying on whack-a-mole genre or keyword blacklists.
+  static bool isTitleAcceptable(String targetTitle, String candidateTitle) {
+    final targetClean = cleanString(targetTitle);
+    final candClean = cleanString(candidateTitle);
+    if (targetClean.isEmpty || candClean.isEmpty) return false;
+    if (targetClean == candClean) return true;
+    if (candClean.contains(targetClean) || targetClean.contains(candClean)) {
+      final maxLen = targetClean.length > candClean.length
+          ? targetClean.length
+          : candClean.length;
+      final minLen = targetClean.length < candClean.length
+          ? targetClean.length
+          : candClean.length;
+      final residue = maxLen - minLen;
+      if (residue <= 8) return true;
+      if (minLen / maxLen >= 0.65) return true;
+    }
+    for (final entry in _titleAliases.entries) {
+      final keyClean = cleanString(entry.key);
+      if (targetClean == keyClean) {
+        if (entry.value.any((a) =>
+            cleanString(a) == candClean ||
+            candClean.contains(cleanString(a)) ||
+            cleanString(a).contains(candClean))) {
+          return true;
+        }
+      }
+      if (candClean == keyClean) {
+        if (entry.value.any((a) =>
+            cleanString(a) == targetClean ||
+            targetClean.contains(cleanString(a)) ||
+            cleanString(a).contains(targetClean))) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   static bool isKnownUpstreamMismatch(String id, String title, String artist) {
@@ -690,6 +781,9 @@ class HifiMatcher {
             } else {
               score += 35; // Partial album match
             }
+          } else {
+            // Candidate is from a completely unrelated album when a specific album was targeted
+            score = (score - 25).clamp(0, 300);
           }
         }
       }
@@ -728,28 +822,56 @@ class HifiMatcher {
     return matchToHifi(track);
   }
 
+  static final Map<String, Future<Track?>> _inFlightMatches = {};
+
   /// Attempts to elevate an eligible YouTube track to Lossless FLAC
   /// with STRICT provider priority: Kuwo Primary -> Monochrome Fallback -> YouTube (null).
+  /// Deduplicates concurrent in-flight requests and merges FLAC stream data without overwriting caller track metadata.
   Future<Track?> matchToHifi(Track youtubeTrack) async {
     if (!isEligibleTrack(youtubeTrack)) {
       return null;
     }
 
     final trackIdKey = youtubeTrack.youtubeVideoId ?? youtubeTrack.id;
-    if (_unmatchedCache.contains(trackIdKey)) {
-      return null;
-    }
-    if (_resolutionCache.containsKey(trackIdKey)) {
-      return _resolutionCache[trackIdKey];
-    }
-
     final textKey =
         '${youtubeTrack.artist.toLowerCase()}:::${youtubeTrack.title.toLowerCase()}';
-    if (_unmatchedCache.contains(textKey)) {
+    final inFlightKey = trackIdKey.isNotEmpty ? trackIdKey : textKey;
+
+    if (_inFlightMatches.containsKey(inFlightKey)) {
+      final res = await _inFlightMatches[inFlightKey]!;
+      if (res != null) {
+        return _mergeHiFiOntoTrack(youtubeTrack, res);
+      }
       return null;
     }
-    if (_resolutionCache.containsKey(textKey)) {
-      return _resolutionCache[textKey];
+
+    final future = _doMatchToHifi(youtubeTrack);
+    _inFlightMatches[inFlightKey] = future;
+    try {
+      final res = await future;
+      if (res != null) {
+        return _mergeHiFiOntoTrack(youtubeTrack, res);
+      }
+      return null;
+    } finally {
+      _inFlightMatches.remove(inFlightKey);
+    }
+  }
+
+  Future<Track?> _doMatchToHifi(Track youtubeTrack) async {
+    final trackIdKey = youtubeTrack.youtubeVideoId ?? youtubeTrack.id;
+    final textKey =
+        '${youtubeTrack.artist.toLowerCase()}:::${youtubeTrack.title.toLowerCase()}';
+
+    if (_unmatchedCache.contains(trackIdKey) || _unmatchedCache.contains(textKey)) {
+      return null;
+    }
+
+    final cached = getCachedHiFi(youtubeTrack);
+    if (cached != null &&
+        cached.flacStreamUrl != null &&
+        cached.flacStreamUrl!.isNotEmpty) {
+      return cached;
     }
 
     // Check local disk cache first
@@ -766,6 +888,7 @@ class HifiMatcher {
           ...?youtubeTrack.extraData,
           'hifiVersion': matcherVersion,
           'isLocalCache': true,
+          'hifiChecked': true,
         },
       );
       _persistResolution(trackIdKey, elevated);
@@ -777,6 +900,8 @@ class HifiMatcher {
     final targetArtist = youtubeTrack.artist.trim();
     final targetDurSecs = youtubeTrack.durationSeconds;
     final targetAlbum = youtubeTrack.album.trim();
+
+    bool anySearchSucceeded = false;
 
     // =========================================================================
     // PASS 1: KUWO PRIMARY PROVIDER (flac.music.hi.cn)
@@ -810,6 +935,7 @@ class HifiMatcher {
     for (final q in kuwoQueries.take(4)) {
       try {
         final list = await _kuwoService.searchCandidates(q, size: 12);
+        anySearchSucceeded = true;
         // Detect albums containing multiple tracks with identical title (e.g. single releases with Track 1 = Vocal, Track 2 = Minus One/Karaoke)
         final albumTitleMinId = <String, int>{};
         for (final c in list) {
@@ -955,6 +1081,7 @@ class HifiMatcher {
       for (final q in monoQueries.take(3)) {
         try {
           final list = await _monochromeService.searchTracks(q, limit: 12);
+          anySearchSucceeded = true;
           for (final mono in list) {
             final candId = mono.extraData?['recordingId']?.toString() ?? mono.id;
             final score = scoreTrackCandidate(
@@ -1022,9 +1149,12 @@ class HifiMatcher {
 
     // =========================================================================
     // PASS 3: Neither Kuwo nor Monochrome matched -> Fallback to YouTube
+    // Guard against poisoning _unmatchedCache when all providers failed due to offline/timeout
     // =========================================================================
-    _unmatchedCache.add(trackIdKey);
-    _unmatchedCache.add(textKey);
+    if (anySearchSucceeded && ConnectivityService().isOnline) {
+      _unmatchedCache.add(trackIdKey);
+      _unmatchedCache.add(textKey);
+    }
     return null;
   }
 }

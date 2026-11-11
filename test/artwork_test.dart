@@ -8,7 +8,7 @@ void main() {
 
   setUp(() {
     SharedPreferences.setMockInitialValues({
-      'artwork_cache_v2': jsonEncode({
+      'artwork_cache_v5_clean': jsonEncode({
         'tate mcrae - housewife':
             'https://is1-ssl.mzstatic.com/image/thumb/Music211/v4/2b/96/2b/2b962b77-3a04-5650-aefd-37ecfce04b03/196874840146.jpg/600x600bb.jpg',
       }),

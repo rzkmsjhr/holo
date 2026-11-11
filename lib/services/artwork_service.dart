@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../core/network/holo_http_client.dart';
+import '../core/utils/text_encoding_utils.dart';
 import '../models/track.dart';
+import 'hifi_matcher.dart';
 import 'youtube_music_service.dart';
 
 class ArtworkService {
-  static const String _storageKey = 'artwork_cache_v4_yt';
-  static const String _legacyStorageKey = 'artwork_cache_v2';
+  static const String _storageKey = 'artwork_cache_v5_clean';
   final Map<String, String> _cache = {};
   final Map<String, Future<String?>> _inFlight = {};
   final Set<String> _failedKeys = {};
@@ -19,6 +21,23 @@ class ArtworkService {
   static const int _maxConcurrent = 2;
   int _activeRequests = 0;
   final List<({Completer<String?> completer, Future<String?> Function() task, bool isPriority})> _queue = [];
+
+  /// Validates whether a thumbnail URL represents a genuine square music album cover
+  /// rather than a 16:9 YouTube video thumbnail frame or generic placeholder.
+  static bool isSquareAlbumArtworkUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    final lower = url.toLowerCase();
+    if (lower.contains('unsplash.com')) return false;
+    if (lower.contains('ytimg.com') || lower.contains('img.youtube.com')) return false;
+    return lower.contains('googleusercontent.com') ||
+        lower.contains('ggpht.com') ||
+        lower.contains('mzstatic.com') ||
+        lower.contains('scdn.co') ||
+        lower.contains('kuwo.cn') ||
+        lower.contains('music.126.net') ||
+        lower.contains('qq.com') ||
+        lower.contains('dzcdn.net');
+  }
 
   void _processNextQueueItem() {
     if (_activeRequests >= _maxConcurrent || _queue.isEmpty) return;
@@ -76,13 +95,16 @@ class ArtworkService {
     if (_isInitialized) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString(_storageKey) ??
-          prefs.getString('artwork_cache_v3') ??
-          prefs.getString(_legacyStorageKey);
+      // Purge poisoned legacy caches containing 16:9 ytimg video thumbnails
+      await prefs.remove('artwork_cache_v4_yt');
+      await prefs.remove('artwork_cache_v3');
+      await prefs.remove('artwork_cache_v2');
+
+      final saved = prefs.getString(_storageKey);
       if (saved != null && saved.isNotEmpty) {
         final Map<String, dynamic> decoded = jsonDecode(saved);
         decoded.forEach((key, val) {
-          if (val is String && val.isNotEmpty) {
+          if (val is String && val.isNotEmpty && isSquareAlbumArtworkUrl(val)) {
             _cache[key] = val;
           }
         });
@@ -193,14 +215,47 @@ class ArtworkService {
 
     try {
       final songs = await _ytmService.searchSongs('$cleanArtist $cleanTitle');
-      if (songs.isNotEmpty) {
-        final ytArt = songs.first.thumbnailUrl;
-        if (ytArt.isNotEmpty) {
-          final highRes = Track.toHighResUrl(ytArt);
+      for (final s in songs) {
+        final artistMatches =
+            HifiMatcher.doesArtistMatch(cleanArtist, s.artist, cleanTitle);
+        final titleMatches = HifiMatcher.isTitleAcceptable(cleanTitle, s.title);
+        if (artistMatches && titleMatches && isSquareAlbumArtworkUrl(s.thumbnailUrl)) {
+          final highRes = Track.toHighResUrl(s.thumbnailUrl);
           _cache[key] = highRes;
           _cache[rawKey] = highRes;
           _debouncePersistCache();
           return highRes;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback: iTunes Search API for guaranteed official square artwork
+    try {
+      final itunesQuery = Uri.encodeComponent('$cleanArtist $cleanTitle');
+      final itunesUri = Uri.parse(
+          'https://itunes.apple.com/search?term=$itunesQuery&entity=song&limit=5');
+      final res = await HoloHttpClient.client
+          .get(itunesUri)
+          .timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final decoded =
+            jsonDecode(TextEncodingUtils.decodeHttpBytes(res.bodyBytes));
+        final results = decoded['results'] as List?;
+        if (results != null) {
+          for (final r in results) {
+            final aName = r['artistName']?.toString() ?? '';
+            final tName = r['trackName']?.toString() ?? '';
+            final art100 = r['artworkUrl100']?.toString() ?? '';
+            if (HifiMatcher.doesArtistMatch(cleanArtist, aName, cleanTitle) &&
+                HifiMatcher.isTitleAcceptable(cleanTitle, tName) &&
+                art100.isNotEmpty) {
+              final art600 = art100.replaceAll('100x100bb.jpg', '600x600bb.jpg');
+              _cache[key] = art600;
+              _cache[rawKey] = art600;
+              _debouncePersistCache();
+              return art600;
+            }
+          }
         }
       }
     } catch (_) {}

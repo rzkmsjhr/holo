@@ -105,6 +105,19 @@ class TrendingService {
       return _resolvedCache[cacheKey];
     }
 
+    // Fast path: If the item already has a verified YouTube video ID and square cover, use it
+    final cleanYtId = item.youtubeVideoId?.trim() ?? '';
+    final hasRealYtId = cleanYtId.isNotEmpty && !cleanYtId.startsWith('trending_');
+    final hasSquareThumb = item.thumbnailUrl != null &&
+        item.thumbnailUrl!.isNotEmpty &&
+        !item.thumbnailUrl!.contains('ytimg.com');
+
+    if (hasRealYtId && hasSquareThumb) {
+      final fallback = item.toTrack();
+      _resolvedCache[cacheKey] = fallback;
+      return fallback;
+    }
+
     try {
       final query = '${item.artist} ${item.title}';
       final searchResults = await _ytmService.searchSongs(query);
@@ -114,10 +127,17 @@ class TrendingService {
         int bestScore = -1;
 
         for (final cand in searchResults) {
-          int score = 0;
-          if (HifiMatcher.doesArtistMatch(item.artist, cand.artist, item.title)) {
-            score += 50;
+          // Strictly require both artist match and title match
+          final artistMatches =
+              HifiMatcher.doesArtistMatch(item.artist, cand.artist, item.title);
+          final titleMatches =
+              HifiMatcher.isTitleAcceptable(item.title, cand.title);
+
+          if (!artistMatches || !titleMatches) {
+            continue;
           }
+
+          int score = 50;
           final cClean = HifiMatcher.cleanString(cand.title);
           final tClean = HifiMatcher.cleanString(item.title);
           if (cClean == tClean) {
@@ -134,17 +154,23 @@ class TrendingService {
           }
         }
 
-        final match = bestMatch ?? searchResults.first;
-        final resolved = match.copyWith(
-          title: item.title,
-          artist: item.artist,
-          thumbnailUrl: match.thumbnailUrl.isNotEmpty
-              ? match.thumbnailUrl
-              : (item.thumbnailUrl ?? ''),
-        );
+        if (bestMatch != null) {
+          final chosenThumb = (hasSquareThumb)
+              ? item.thumbnailUrl!
+              : (bestMatch.thumbnailUrl.isNotEmpty
+                  ? bestMatch.thumbnailUrl
+                  : (item.thumbnailUrl ?? ''));
 
-        _resolvedCache[cacheKey] = resolved;
-        return resolved;
+          final resolved = bestMatch.copyWith(
+            title: item.title,
+            artist: item.artist,
+            album: bestMatch.album.isNotEmpty ? bestMatch.album : '',
+            thumbnailUrl: chosenThumb,
+          );
+
+          _resolvedCache[cacheKey] = resolved;
+          return resolved;
+        }
       }
     } catch (_) {}
 

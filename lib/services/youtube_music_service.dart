@@ -361,18 +361,6 @@ class YouTubeMusicService {
       return true;
     }
 
-    if (lowerTitle.contains(' - ')) {
-      final prefix = lowerTitle.split(' - ').first.trim();
-      final prefixWords = prefix
-          .split(RegExp(r'\s+'))
-          .where((w) => w.length >= 3 && !_titleStopwords.contains(w))
-          .toList();
-      if (prefixWords.isNotEmpty &&
-          prefixWords.every((pw) => lowerQuery.contains(pw))) {
-        return true;
-      }
-    }
-
     return false;
   }
 

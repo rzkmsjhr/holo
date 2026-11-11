@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/theme/app_theme.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
+import '../../services/artwork_service.dart';
 import '../widgets/live_equalizer_bars.dart';
 import 'artist_screen.dart';
 import 'queue_screen.dart';
@@ -680,17 +681,21 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                 final player = context.read<PlayerProvider>();
                                 final cachedArt =
                                     player.getArtwork(track.artist, track.title);
-                                final art = (cachedArt != null && cachedArt.isNotEmpty)
-                                    ? cachedArt
-                                    : (track.highResThumbnailUrl.isNotEmpty
-                                        ? track.highResThumbnailUrl
-                                        : (track.thumbnailUrl.isNotEmpty
-                                            ? track.thumbnailUrl
-                                            : null));
+                                final hasSquareTrackArt =
+                                    ArtworkService.isSquareAlbumArtworkUrl(track.highResThumbnailUrl);
+                                final art = hasSquareTrackArt
+                                    ? track.highResThumbnailUrl
+                                    : ((cachedArt != null && cachedArt.isNotEmpty)
+                                        ? cachedArt
+                                        : (track.highResThumbnailUrl.isNotEmpty
+                                            ? track.highResThumbnailUrl
+                                            : (track.thumbnailUrl.isNotEmpty
+                                                ? track.thumbnailUrl
+                                                : null)));
 
                                 final hasValidThumb = track.thumbnailUrl.isNotEmpty &&
                                     !track.thumbnailUrl.contains('unsplash.com');
-                                if ((cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
+                                if (!hasSquareTrackArt && (cachedArt == null || cachedArt.isEmpty) && !hasValidThumb) {
                                   player.resolveArtworkFor(track.artist, track.title);
                                 }
 
