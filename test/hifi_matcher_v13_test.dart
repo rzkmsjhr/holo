@@ -143,7 +143,7 @@ void main() {
         audioFormat: '16-bit • 44.1kHz Lossless FLAC',
         extraData: {
           'resolvedWithAlbum': true,
-          'hifiVersion': 13,
+          'hifiVersion': 14,
         },
       );
 

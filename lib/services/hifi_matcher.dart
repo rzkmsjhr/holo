@@ -88,14 +88,15 @@ class HifiMatcher {
   final KuwoService _kuwoService = KuwoService();
   final MonochromeService _monochromeService = MonochromeService();
 
-  /// Matcher version 13 - matching nadanada v13 specification
-  static const int matcherVersion = 13;
-  static const String _storageKey = 'holo_hifi_cache_v13';
+  /// Matcher version 14 - matching nadanada v14 specification
+  static const int matcherVersion = 14;
+  static const String _storageKey = 'holo_hifi_cache_v14';
   static const List<String> _legacyStorageKeys = [
     'holo_hifi_cache',
     'holo_hifi_cache_v2',
     'holo_hifi_cache_v11',
     'holo_hifi_cache_v12',
+    'holo_hifi_cache_v13',
   ];
 
   static RegExp get cnMediaTieInRegex => EditionMatrix.cnMediaTieInRegex;
@@ -105,6 +106,19 @@ class HifiMatcher {
   // In-memory cache for fast resolution
   static final Map<String, Track> _resolutionCache = {};
   static final Set<String> _unmatchedCache = {};
+
+  static bool _isCachedEntryValid(Track t) {
+    final url = t.flacStreamUrl;
+    if (!t.isLossless || url == null || url.isEmpty) return false;
+    final hifiId = t.extraData?['hifiId']?.toString() ?? '';
+    if ((t.audioSource == 'kuwo' ||
+            hifiId.startsWith('kuwo_') ||
+            hifiId.startsWith('wyy_')) &&
+        url.startsWith('http')) {
+      return KuwoService.isValidHiCnFlacUrl(url);
+    }
+    return true;
+  }
 
   Future<void> init() async {
     if (_isInitialized) return;
@@ -121,22 +135,29 @@ class HifiMatcher {
       final saved = prefs.getString(_storageKey);
       if (saved != null && saved.isNotEmpty) {
         final Map<String, dynamic> decoded = jsonDecode(saved);
+        bool cleaned = false;
         decoded.forEach((key, val) {
           if (val is Map<String, dynamic>) {
             final t = Track.fromJson(val);
-            if (t.isLossless &&
-                t.flacStreamUrl != null &&
-                t.flacStreamUrl!.isNotEmpty) {
+            if (_isCachedEntryValid(t)) {
               _resolutionCache[key] = t;
+            } else {
+              cleaned = true;
             }
           }
         });
+        if (cleaned) {
+          final cacheMap = <String, dynamic>{};
+          _resolutionCache.forEach((k, v) => cacheMap[k] = v.toJson());
+          prefs.setString(_storageKey, jsonEncode(cacheMap));
+        }
       }
     } catch (_) {}
     _isInitialized = true;
   }
 
   void _persistResolution(String key, Track track) {
+    if (!_isCachedEntryValid(track)) return;
     _resolutionCache[key] = track;
     SharedPreferences.getInstance().then((prefs) {
       final Map<String, dynamic> cacheMap = {};
@@ -145,6 +166,33 @@ class HifiMatcher {
       });
       prefs.setString(_storageKey, jsonEncode(cacheMap));
     }).catchError((_) {});
+  }
+
+  static void _evictResolutionKey(String key) {
+    _resolutionCache.remove(key);
+    SharedPreferences.getInstance().then((prefs) {
+      final Map<String, dynamic> cacheMap = {};
+      _resolutionCache.forEach((k, v) {
+        cacheMap[k] = v.toJson();
+      });
+      prefs.setString(_storageKey, jsonEncode(cacheMap));
+    }).catchError((_) {});
+  }
+
+  Track? _lookupRawCachedHit(Track track) {
+    final trackIdKey = track.youtubeVideoId ?? track.id;
+    final textKey =
+        '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
+    for (final key in [trackIdKey, textKey]) {
+      final candidate = _resolutionCache[key];
+      if (candidate != null) {
+        if (_isCachedEntryValid(candidate)) {
+          return candidate;
+        }
+        _evictResolutionKey(key);
+      }
+    }
+    return null;
   }
 
   static Track _mergeHiFiOntoTrack(Track target, Track resolvedHiFi) {
@@ -169,29 +217,6 @@ class HifiMatcher {
   /// Synchronously checks if a track has a cached or downloaded Hi-Fi FLAC stream.
   Track? getCachedHiFi(Track track) {
     final trackIdKey = track.youtubeVideoId ?? track.id;
-    Track? hit;
-    if (_resolutionCache.containsKey(trackIdKey)) {
-      hit = _resolutionCache[trackIdKey];
-    } else {
-      final textKey =
-          '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
-      if (_resolutionCache.containsKey(textKey)) {
-        hit = _resolutionCache[textKey];
-      }
-    }
-
-    if (hit != null) {
-      final targetAlbum = track.album.trim();
-      final needsAlbumUpgrade = targetAlbum.isNotEmpty &&
-          hit.extraData?['resolvedWithAlbum'] != true;
-      if (!needsAlbumUpgrade &&
-          hit.isLossless &&
-          hit.flacStreamUrl != null &&
-          hit.flacStreamUrl!.isNotEmpty) {
-        return _mergeHiFiOntoTrack(track, hit);
-      }
-    }
-
     final textKey =
         '${track.artist.toLowerCase()}:::${track.title.toLowerCase()}';
     final localPath = FlacCacheService().getCachedFilePath(trackIdKey) ??
@@ -209,6 +234,16 @@ class HifiMatcher {
           'hifiChecked': true,
         },
       );
+    }
+
+    final hit = _lookupRawCachedHit(track);
+    if (hit != null) {
+      final targetAlbum = track.album.trim();
+      final needsAlbumUpgrade = targetAlbum.isNotEmpty &&
+          hit.extraData?['resolvedWithAlbum'] != true;
+      if (!needsAlbumUpgrade) {
+        return _mergeHiFiOntoTrack(track, hit);
+      }
     }
     return null;
   }
@@ -801,12 +836,17 @@ class HifiMatcher {
       final time = track.extraData!['time'];
       final sign = track.extraData!['sign']?.toString() ?? '';
       final bitrate = track.extraData!['bitrate']?.toString() ?? '2000';
+      final hifiId = track.extraData!['hifiId']?.toString() ?? '';
+      final platform = track.extraData!['platform']?.toString() ??
+          (hifiId.startsWith('wyy_') ? 'wyy' : 'kuwo');
       if (songId.isNotEmpty) {
         final newUrl = await _kuwoService.getFlacStreamUrl(
           songId: songId,
           time: time,
           sign: sign,
           bitrate: bitrate,
+          platform: platform,
+          expectedDurSecs: track.durationSeconds,
         );
         if (newUrl != null && newUrl.isNotEmpty) {
           final updated = track.copyWith(flacStreamUrl: newUrl);
@@ -819,15 +859,18 @@ class HifiMatcher {
         }
       }
     }
-    return matchToHifi(track);
+    return matchToHifi(track, forceRefresh: true);
   }
 
   static final Map<String, Future<Track?>> _inFlightMatches = {};
 
   /// Attempts to elevate an eligible YouTube track to Lossless FLAC
-  /// with STRICT provider priority: Kuwo Primary -> Monochrome Fallback -> YouTube (null).
+  /// with STRICT provider priority: Kuwo Primary -> NetEase (wyy) Secondary -> Monochrome Fallback -> YouTube (null).
   /// Deduplicates concurrent in-flight requests and merges FLAC stream data without overwriting caller track metadata.
-  Future<Track?> matchToHifi(Track youtubeTrack) async {
+  Future<Track?> matchToHifi(
+    Track youtubeTrack, {
+    bool forceRefresh = false,
+  }) async {
     if (!isEligibleTrack(youtubeTrack)) {
       return null;
     }
@@ -835,7 +878,8 @@ class HifiMatcher {
     final trackIdKey = youtubeTrack.youtubeVideoId ?? youtubeTrack.id;
     final textKey =
         '${youtubeTrack.artist.toLowerCase()}:::${youtubeTrack.title.toLowerCase()}';
-    final inFlightKey = trackIdKey.isNotEmpty ? trackIdKey : textKey;
+    final baseKey = trackIdKey.isNotEmpty ? trackIdKey : textKey;
+    final inFlightKey = forceRefresh ? '$baseKey::refresh' : baseKey;
 
     if (_inFlightMatches.containsKey(inFlightKey)) {
       final res = await _inFlightMatches[inFlightKey]!;
@@ -845,7 +889,7 @@ class HifiMatcher {
       return null;
     }
 
-    final future = _doMatchToHifi(youtubeTrack);
+    final future = _doMatchToHifi(youtubeTrack, forceRefresh: forceRefresh);
     _inFlightMatches[inFlightKey] = future;
     try {
       final res = await future;
@@ -858,23 +902,180 @@ class HifiMatcher {
     }
   }
 
-  Future<Track?> _doMatchToHifi(Track youtubeTrack) async {
+  Future<Track?> _tryResolveHiCnPlatform({
+    required Track youtubeTrack,
+    required String platform,
+    required String hifiPrefix,
+    required List<String> queries,
+    required String targetArtist,
+    required int targetDurSecs,
+    required String targetAlbum,
+    required String trackIdKey,
+    required String textKey,
+    required void Function() onSearchSucceeded,
+    required void Function() onUrlError,
+  }) async {
+    final qualified = <({Map<String, dynamic> cand, String bitrate, bool isHiRes, int score})>[];
+    final seenIds = <String>{};
+    final earlyExit = targetAlbum.isNotEmpty ? 200 : 170;
+    int bestScoreSeen = 0;
+
+    for (final q in queries.take(4)) {
+      try {
+        final list =
+            await _kuwoService.searchCandidates(q, size: 12, platform: platform);
+        onSearchSucceeded();
+
+        // Detect albums containing multiple tracks with identical title (e.g. Track 1 = Vocal, Track 2 = Minus One)
+        final albumTitleMinId = <String, int>{};
+        for (final c in list) {
+          final ct = cleanString(c['name']?.toString() ?? '');
+          final ca = cleanString(c['album_name']?.toString() ?? '');
+          if (ct.isNotEmpty && ca.isNotEmpty) {
+            final key = '$ct::$ca';
+            final idNum =
+                int.tryParse(c['id']?.toString() ?? '') ?? 0x7FFFFFFFFFFFFFFF;
+            final existingMin = albumTitleMinId[key];
+            if (existingMin == null || idNum < existingMin) {
+              albumTitleMinId[key] = idNum;
+            }
+          }
+        }
+
+        for (final c in list) {
+          final flacBitrate = _kuwoService.extractFlacBitrate(c);
+          if (flacBitrate == null) continue;
+
+          final cId = c['id']?.toString() ?? '';
+          if (cId.isEmpty || seenIds.contains(cId)) continue;
+          final cTitle = c['name']?.toString() ?? '';
+          final cArtist = c['artist']?.toString() ?? '';
+          final cAlbum = c['album_name']?.toString() ?? '';
+          final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
+
+          var score = scoreTrackCandidate(
+            targetTitle: youtubeTrack.title,
+            targetArtist: targetArtist,
+            targetDurSecs: targetDurSecs,
+            targetAlbum: targetAlbum.isNotEmpty ? targetAlbum : null,
+            candId: cId,
+            candTitle: cTitle,
+            candArtist: cArtist,
+            candAlbum: cAlbum,
+            candDurSecs: cDur,
+          );
+
+          if (score == 0) continue;
+
+          final ct = cleanString(cTitle);
+          final ca = cleanString(cAlbum);
+          final idNum = int.tryParse(cId) ?? 0x7FFFFFFFFFFFFFFF;
+          final minId = albumTitleMinId['$ct::$ca'];
+          if (minId != null && idNum > minId) {
+            score = (score - 60).clamp(0, 300);
+          }
+
+          if (score >= 140) {
+            seenIds.add(cId);
+            if (score > bestScoreSeen) {
+              bestScoreSeen = score;
+            }
+            qualified.add((
+              cand: c,
+              bitrate: flacBitrate,
+              isHiRes: _kuwoService.isHiResFlac(c),
+              score: score,
+            ));
+          }
+        }
+      } catch (_) {}
+
+      if (bestScoreSeen >= earlyExit) {
+        break;
+      }
+    }
+
+    if (qualified.isEmpty) return null;
+
+    qualified.sort((a, b) {
+      final cmp = b.score.compareTo(a.score);
+      if (cmp != 0) return cmp;
+      final aId = int.tryParse(a.cand['id']?.toString() ?? '') ??
+          0x7FFFFFFFFFFFFFFF;
+      final bId = int.tryParse(b.cand['id']?.toString() ?? '') ??
+          0x7FFFFFFFFFFFFFFF;
+      return aId.compareTo(bId);
+    });
+
+    final flacCache = FlacCacheService();
+    for (final entry in qualified.take(4)) {
+      final songId = entry.cand['id']?.toString() ?? '';
+      final time = entry.cand['time'];
+      final sign = entry.cand['sign']?.toString() ?? '';
+      final candDur =
+          int.tryParse(entry.cand['duration']?.toString() ?? '0') ?? 0;
+
+      final flacUrl = await _kuwoService.getFlacStreamUrl(
+        songId: songId,
+        time: time,
+        sign: sign,
+        bitrate: entry.bitrate,
+        platform: platform,
+        expectedDurSecs: candDur > 0 ? candDur : targetDurSecs,
+      );
+
+      if (flacUrl != null && flacUrl.isNotEmpty) {
+        final elevated = youtubeTrack.copyWith(
+          flacStreamUrl: flacUrl,
+          audioSource: 'kuwo',
+          isLossless: true,
+          audioFormat: entry.isHiRes
+              ? '24-bit • 96kHz Lossless FLAC'
+              : '16-bit • 44.1kHz Lossless FLAC',
+          extraData: {
+            ...?youtubeTrack.extraData,
+            'hifiVersion': matcherVersion,
+            'hifiId': '$hifiPrefix$songId',
+            'platform': platform,
+            'songid': songId,
+            'time': time,
+            'sign': sign,
+            'bitrate': entry.bitrate,
+            'matchScore': entry.score,
+            'isHiRes': entry.isHiRes,
+            'resolvedWithAlbum': targetAlbum.isNotEmpty,
+            'hifiChecked': true,
+          },
+        );
+
+        _persistResolution(trackIdKey, elevated);
+        _persistResolution(textKey, elevated);
+        flacCache.cacheFlacStream(trackIdKey, flacUrl);
+        return elevated;
+      }
+
+      onUrlError();
+    }
+
+    return null;
+  }
+
+  Future<Track?> _doMatchToHifi(
+    Track youtubeTrack, {
+    bool forceRefresh = false,
+  }) async {
     final trackIdKey = youtubeTrack.youtubeVideoId ?? youtubeTrack.id;
     final textKey =
         '${youtubeTrack.artist.toLowerCase()}:::${youtubeTrack.title.toLowerCase()}';
 
-    if (_unmatchedCache.contains(trackIdKey) || _unmatchedCache.contains(textKey)) {
+    if (forceRefresh) {
+      _unmatchedCache.remove(trackIdKey);
+      _unmatchedCache.remove(textKey);
+    } else if (_unmatchedCache.contains(trackIdKey) ||
+        _unmatchedCache.contains(textKey)) {
       return null;
     }
 
-    final cached = getCachedHiFi(youtubeTrack);
-    if (cached != null &&
-        cached.flacStreamUrl != null &&
-        cached.flacStreamUrl!.isNotEmpty) {
-      return cached;
-    }
-
-    // Check local disk cache first
     final flacCache = FlacCacheService();
     final cachedPath = flacCache.getCachedFilePath(trackIdKey) ??
         flacCache.getCachedFilePath(textKey);
@@ -896,169 +1097,84 @@ class HifiMatcher {
       return elevated;
     }
 
+    Track? fallbackCached;
+    if (!forceRefresh) {
+      final rawHit = _lookupRawCachedHit(youtubeTrack);
+      if (rawHit != null) {
+        final targetAlbum = youtubeTrack.album.trim();
+        final needsAlbumUpgrade = targetAlbum.isNotEmpty &&
+            rawHit.extraData?['resolvedWithAlbum'] != true;
+        if (!needsAlbumUpgrade) {
+          return _mergeHiFiOntoTrack(youtubeTrack, rawHit);
+        }
+        // Preserve prior cached FLAC if the album-upgrade re-query returns nothing better
+        fallbackCached = rawHit;
+      }
+    }
+
     final cleanedTitle = cleanTitle(youtubeTrack.title);
     final targetArtist = youtubeTrack.artist.trim();
     final targetDurSecs = youtubeTrack.durationSeconds;
     final targetAlbum = youtubeTrack.album.trim();
 
     bool anySearchSucceeded = false;
+    bool hadUrlError = false;
 
-    // =========================================================================
-    // PASS 1: KUWO PRIMARY PROVIDER (flac.music.hi.cn)
-    // Multi-pass query: Album-first -> Base artist+title -> Clean title
-    // =========================================================================
-    final kuwoQueries = <String>[];
+    final hiCnQueries = <String>[];
     if (targetAlbum.isNotEmpty) {
-      kuwoQueries.add('$targetArtist $cleanedTitle $targetAlbum'.trim());
-      final deAlb = stripLatinDiacritics('$targetArtist $cleanedTitle $targetAlbum'.trim());
-      if (deAlb != kuwoQueries.first && !kuwoQueries.contains(deAlb)) {
-        kuwoQueries.add(deAlb);
+      hiCnQueries.add('$targetArtist $cleanedTitle $targetAlbum'.trim());
+      final deAlb =
+          stripLatinDiacritics('$targetArtist $cleanedTitle $targetAlbum'.trim());
+      if (deAlb != hiCnQueries.first && !hiCnQueries.contains(deAlb)) {
+        hiCnQueries.add(deAlb);
       }
     }
     final baseKuwo = '$targetArtist $cleanedTitle'.trim();
-    if (!kuwoQueries.contains(baseKuwo)) {
-      kuwoQueries.add(baseKuwo);
+    if (!hiCnQueries.contains(baseKuwo)) {
+      hiCnQueries.add(baseKuwo);
     }
     final deBase = stripLatinDiacritics(baseKuwo);
-    if (deBase != baseKuwo && !kuwoQueries.contains(deBase)) {
-      kuwoQueries.add(deBase);
+    if (deBase != baseKuwo && !hiCnQueries.contains(deBase)) {
+      hiCnQueries.add(deBase);
     }
-    if (!kuwoQueries.contains(cleanedTitle)) {
-      kuwoQueries.add(cleanedTitle);
-    }
-
-    Map<String, dynamic>? bestKuwoRaw;
-    String? bestKuwoBitrate;
-    bool bestKuwoIsHiRes = false;
-    int bestKuwoScore = 0;
-
-    for (final q in kuwoQueries.take(4)) {
-      try {
-        final list = await _kuwoService.searchCandidates(q, size: 12);
-        anySearchSucceeded = true;
-        // Detect albums containing multiple tracks with identical title (e.g. single releases with Track 1 = Vocal, Track 2 = Minus One/Karaoke)
-        final albumTitleMinId = <String, int>{};
-        for (final c in list) {
-          final ct = cleanString(c['name']?.toString() ?? '');
-          final ca = cleanString(c['album_name']?.toString() ?? '');
-          if (ct.isNotEmpty && ca.isNotEmpty) {
-            final key = '$ct::$ca';
-            final idNum =
-                int.tryParse(c['id']?.toString() ?? '') ?? 0x7FFFFFFFFFFFFFFF;
-            final existingMin = albumTitleMinId[key];
-            if (existingMin == null || idNum < existingMin) {
-              albumTitleMinId[key] = idNum;
-            }
-          }
-        }
-
-        for (final c in list) {
-          final flacBitrate = _kuwoService.extractFlacBitrate(c);
-          if (flacBitrate == null) continue;
-
-          final cId = c['id']?.toString() ?? '';
-          if (cId.isEmpty) continue;
-          final cTitle = c['name']?.toString() ?? '';
-          final cArtist = c['artist']?.toString() ?? '';
-          final cAlbum = c['album_name']?.toString() ?? '';
-          final cDur = int.tryParse(c['duration']?.toString() ?? '0') ?? 0;
-
-          var score = scoreTrackCandidate(
-            targetTitle: youtubeTrack.title,
-            targetArtist: targetArtist,
-            targetDurSecs: targetDurSecs,
-            targetAlbum: targetAlbum.isNotEmpty ? targetAlbum : null,
-            candId: cId,
-            candTitle: cTitle,
-            candArtist: cArtist,
-            candAlbum: cAlbum,
-            candDurSecs: cDur,
-          );
-
-          if (score == 0) continue;
-
-          // If album has multiple tracks sharing the identical title, the primary vocal track is Track 1 (lowest numeric song ID).
-          // Any subsequent track (Track 2+, higher ID) is an unlabelled Minus-One / Accompaniment cut -> penalize heavily by 60 points.
-          final ct = cleanString(cTitle);
-          final ca = cleanString(cAlbum);
-          final idNum = int.tryParse(cId) ?? 0x7FFFFFFFFFFFFFFF;
-          final minId = albumTitleMinId['$ct::$ca'];
-          if (minId != null && idNum > minId) {
-            score = (score - 60).clamp(0, 300);
-          }
-
-          if (score >= 140) {
-            bool isBetter = false;
-            if (score > bestKuwoScore) {
-              isBetter = true;
-            } else if (score == bestKuwoScore && bestKuwoRaw != null) {
-              final currId = int.tryParse(cId) ?? 0x7FFFFFFFFFFFFFFF;
-              final bestId =
-                  int.tryParse(bestKuwoRaw['id']?.toString() ?? '') ?? 0;
-              isBetter = currId < bestId;
-            }
-            if (isBetter) {
-              bestKuwoScore = score;
-              bestKuwoRaw = c;
-              bestKuwoBitrate = flacBitrate;
-              bestKuwoIsHiRes = _kuwoService.isHiResFlac(c);
-            }
-          }
-        }
-      } catch (_) {}
-
-      // Early break on definitive high-confidence match
-      final earlyExit = targetAlbum.isNotEmpty ? 200 : 170;
-      if (bestKuwoScore >= earlyExit) {
-        break;
-      }
+    if (!hiCnQueries.contains(cleanedTitle)) {
+      hiCnQueries.add(cleanedTitle);
     }
 
-    if (bestKuwoRaw != null && bestKuwoBitrate != null && bestKuwoScore >= 140) {
-      final songId = bestKuwoRaw['id']?.toString() ?? '';
-      final time = bestKuwoRaw['time'];
-      final sign = bestKuwoRaw['sign']?.toString() ?? '';
+    // PASS 1A: KUWO PRIMARY PROVIDER
+    final kuwoRes = await _tryResolveHiCnPlatform(
+      youtubeTrack: youtubeTrack,
+      platform: 'kuwo',
+      hifiPrefix: 'kuwo_',
+      queries: hiCnQueries,
+      targetArtist: targetArtist,
+      targetDurSecs: targetDurSecs,
+      targetAlbum: targetAlbum,
+      trackIdKey: trackIdKey,
+      textKey: textKey,
+      onSearchSucceeded: () => anySearchSucceeded = true,
+      onUrlError: () => hadUrlError = true,
+    );
+    if (kuwoRes != null) return kuwoRes;
 
-      final flacUrl = await _kuwoService.getFlacStreamUrl(
-        songId: songId,
-        time: time,
-        sign: sign,
-        bitrate: bestKuwoBitrate,
-      );
-
-      if (flacUrl != null && flacUrl.isNotEmpty) {
-        final elevated = youtubeTrack.copyWith(
-          flacStreamUrl: flacUrl,
-          audioSource: 'kuwo',
-          isLossless: true,
-          audioFormat: bestKuwoIsHiRes
-              ? '24-bit • 96kHz Lossless FLAC'
-              : '16-bit • 44.1kHz Lossless FLAC',
-          extraData: {
-            ...?youtubeTrack.extraData,
-            'hifiVersion': matcherVersion,
-            'hifiId': 'kuwo_$songId',
-            'songid': songId,
-            'time': time,
-            'sign': sign,
-            'bitrate': bestKuwoBitrate,
-            'matchScore': bestKuwoScore,
-            'isHiRes': bestKuwoIsHiRes,
-            'resolvedWithAlbum': targetAlbum.isNotEmpty,
-            'hifiChecked': true,
-          },
-        );
-
-        _persistResolution(trackIdKey, elevated);
-        _persistResolution(textKey, elevated);
-        flacCache.cacheFlacStream(trackIdKey, flacUrl);
-        return elevated;
-      }
-    }
+    // PASS 1B: NETEASE CLOUD MUSIC (wyy) SECONDARY LOSSLESS BEFORE MONOCHROME
+    final wyyRes = await _tryResolveHiCnPlatform(
+      youtubeTrack: youtubeTrack,
+      platform: 'wyy',
+      hifiPrefix: 'wyy_',
+      queries: hiCnQueries,
+      targetArtist: targetArtist,
+      targetDurSecs: targetDurSecs,
+      targetAlbum: targetAlbum,
+      trackIdKey: trackIdKey,
+      textKey: textKey,
+      onSearchSucceeded: () => anySearchSucceeded = true,
+      onUrlError: () => hadUrlError = true,
+    );
+    if (wyyRes != null) return wyyRes;
 
     // =========================================================================
     // PASS 2: MONOCHROME SECONDARY FALLBACK (tracks.monochrome.st)
-    // Only queried if Kuwo returned no qualifying candidate >= 140
     // =========================================================================
     if (!MonochromeService.isCoolingDown()) {
       final monoQueries = <String>[];
@@ -1144,14 +1260,17 @@ class HifiMatcher {
           flacCache.cacheFlacStream(trackIdKey, bestMonoTrack.flacStreamUrl!);
           return elevated;
         }
+        hadUrlError = true;
       }
     }
 
-    // =========================================================================
-    // PASS 3: Neither Kuwo nor Monochrome matched -> Fallback to YouTube
-    // Guard against poisoning _unmatchedCache when all providers failed due to offline/timeout
-    // =========================================================================
-    if (anySearchSucceeded && ConnectivityService().isOnline) {
+    // Preserve prior working cached match if album-upgrade re-query found no upgrade
+    if (fallbackCached != null) {
+      return _mergeHiFiOntoTrack(youtubeTrack, fallbackCached);
+    }
+
+    // Only cache negative matches when at least one upstream search succeeded and no getUrl failed
+    if (anySearchSucceeded && !hadUrlError && ConnectivityService().isOnline) {
       _unmatchedCache.add(trackIdKey);
       _unmatchedCache.add(textKey);
     }

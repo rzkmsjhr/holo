@@ -6,6 +6,7 @@ import '../../core/theme/app_theme.dart';
 import '../../models/track.dart';
 import '../../providers/player_provider.dart';
 import '../../services/artwork_service.dart';
+import '../../services/hifi_matcher.dart';
 import '../widgets/live_equalizer_bars.dart';
 import 'artist_screen.dart';
 import 'queue_screen.dart';
@@ -1052,66 +1053,116 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                   },
                                 ),
                                 const SizedBox(height: 4),
-                                // Format / FLAC Pill directly below love icon
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: isDark
-                                        ? AppColors.darkSurface
-                                        : AppColors.lightSurfaceElevated,
-                                    borderRadius: BorderRadius.circular(10),
-                                    border: Border.all(
+                                // Format / FLAC Pill directly below love icon (tappable to retry Hi-Fi when on YouTube Audio)
+                                Builder(builder: (context) {
+                                  final canRetryHifi = !track.isLossless &&
+                                      player.isHifiEnabled &&
+                                      HifiMatcher.isEligibleTrack(track);
+                                  final pillContent = Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
                                       color: isDark
-                                          ? AppColors.darkBorder
-                                          : AppColors.lightBorder,
+                                          ? AppColors.darkSurface
+                                          : AppColors.lightSurfaceElevated,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isDark
+                                            ? AppColors.darkBorder
+                                            : AppColors.lightBorder,
+                                      ),
                                     ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      if (track.isLossless) ...[
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                              horizontal: 4, vertical: 1),
-                                          decoration: BoxDecoration(
-                                            color: AppColors.accent,
-                                            borderRadius:
-                                                BorderRadius.circular(3),
-                                          ),
-                                          child: const Text(
-                                            'FLAC',
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w800,
-                                              color: Color(0xFF0A0C10),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        if (track.isLossless) ...[
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 4, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: AppColors.accent,
+                                              borderRadius:
+                                                  BorderRadius.circular(3),
+                                            ),
+                                            child: const Text(
+                                              'FLAC',
+                                              style: TextStyle(
+                                                fontSize: 8,
+                                                fontWeight: FontWeight.w800,
+                                                color: Color(0xFF0A0C10),
+                                              ),
                                             ),
                                           ),
+                                          const SizedBox(width: 5),
+                                        ] else if (canRetryHifi) ...[
+                                          if (player.isHifiResolving)
+                                            const SizedBox(
+                                              width: 9,
+                                              height: 9,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 1.5,
+                                                color: AppColors.primary,
+                                              ),
+                                            )
+                                          else
+                                            Icon(
+                                              Icons.refresh_rounded,
+                                              size: 11,
+                                              color: isDark
+                                                  ? AppColors.darkTextSecondary
+                                                  : AppColors.lightTextSecondary,
+                                            ),
+                                          const SizedBox(width: 4),
+                                        ],
+                                        Text(
+                                          track.isLossless
+                                              ? ((track.audioFormat ??
+                                                      '16-bit • 44.1kHz')
+                                                  .replaceAll(
+                                                      RegExp(
+                                                          r'\s*Lossless(?:\s*FLAC)?',
+                                                          caseSensitive: false),
+                                                      '')
+                                                  .trim())
+                                              : 'YouTube Audio',
+                                          style: TextStyle(
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: isDark
+                                                ? AppColors.darkTextSecondary
+                                                : AppColors.lightTextSecondary,
+                                          ),
                                         ),
-                                        const SizedBox(width: 5),
                                       ],
-                                      Text(
-                                        track.isLossless
-                                            ? ((track.audioFormat ??
-                                                    '16-bit • 44.1kHz')
-                                                .replaceAll(
-                                                    RegExp(
-                                                        r'\s*Lossless(?:\s*FLAC)?',
-                                                        caseSensitive: false),
-                                                    '')
-                                                .trim())
-                                            : 'YouTube Audio',
-                                        style: TextStyle(
-                                          fontSize: 9.5,
-                                          fontWeight: FontWeight.w700,
-                                          color: isDark
-                                              ? AppColors.darkTextSecondary
-                                              : AppColors.lightTextSecondary,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                    ),
+                                  );
+
+                                  if (!canRetryHifi) return pillContent;
+                                  return GestureDetector(
+                                    onTap: player.isHifiResolving
+                                        ? null
+                                        : () async {
+                                            final ok = await player
+                                                .retryHifiForCurrentTrack();
+                                            if (!context.mounted) return;
+                                            ScaffoldMessenger.of(context)
+                                                .hideCurrentSnackBar();
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  ok
+                                                      ? 'Upgraded to Lossless FLAC'
+                                                      : 'No verified Hi-Fi FLAC match found yet',
+                                                ),
+                                                duration:
+                                                    const Duration(seconds: 2),
+                                              ),
+                                            );
+                                          },
+                                    child: pillContent,
+                                  );
+                                }),
                               ],
                             ),
                           ],

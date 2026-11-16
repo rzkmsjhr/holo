@@ -1511,6 +1511,12 @@ class PlayerProvider extends ChangeNotifier {
 
   Future<void> _drainSingleTrack(Track track, int generation) async {
     if (generation != _queueLoadGeneration) return;
+    if (_currentTrack != null &&
+        _isSameTrack(_currentTrack!, track) &&
+        _currentTrack!.isLossless &&
+        (_currentTrack!.flacStreamUrl?.isNotEmpty ?? false)) {
+      return;
+    }
     final key = track.youtubeVideoId ?? track.id;
     if (_preResolvingIds.contains(key)) return;
     _preResolvingIds.add(key);
@@ -1522,7 +1528,9 @@ class PlayerProvider extends ChangeNotifier {
         if (hifi != null && hifi.flacStreamUrl != null) {
           _updateTrackInQueue(hifi);
           _updateRecentlyPlayed(hifi);
-          if (_currentTrack?.id == track.id) {
+          if (_currentTrack != null &&
+              _isSameTrack(_currentTrack!, track) &&
+              !_currentTrack!.isLossless) {
             _currentTrack = hifi;
           }
           notifyListeners();
@@ -1641,7 +1649,59 @@ class PlayerProvider extends ChangeNotifier {
     _scheduleProgressiveQueueDrain(_queueLoadGeneration);
   }
 
-  Future<void> _playStream(String url, {Track? fallbackYtTrack}) async {
+  /// Allows manual 1-tap upgrade/retry from YouTube Audio back to Hi-Fi FLAC at the current playback position.
+  Future<bool> retryHifiForCurrentTrack() async {
+    final track = _currentTrack;
+    if (track == null || !_isHifiEnabled || !HifiMatcher.isEligibleTrack(track)) {
+      return false;
+    }
+    if (track.isLossless && (track.flacStreamUrl?.isNotEmpty ?? false)) {
+      return true;
+    }
+
+    final myGen = _playGeneration;
+    final resumePos = _position;
+    _isHifiResolving = true;
+    notifyListeners();
+
+    try {
+      final hifiTrack = await _hifiMatcher
+          .matchToHifi(track, forceRefresh: true)
+          .timeout(const Duration(seconds: 9), onTimeout: () => null);
+      if (myGen != _playGeneration) return false;
+
+      if (hifiTrack != null &&
+          hifiTrack.flacStreamUrl != null &&
+          hifiTrack.flacStreamUrl!.isNotEmpty) {
+        _currentTrack = hifiTrack;
+        _updateTrackInQueue(hifiTrack);
+        _updateRecentlyPlayed(hifiTrack);
+        _persistPlayerState();
+        _syncNotificationMediaItem(hifiTrack);
+        notifyListeners();
+        await _playStream(
+          hifiTrack.flacStreamUrl!,
+          fallbackYtTrack: track,
+          resumePosition: resumePos,
+        );
+        return myGen == _playGeneration && (_currentTrack?.isLossless ?? false);
+      }
+      return false;
+    } catch (_) {
+      return false;
+    } finally {
+      _isHifiResolving = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _playStream(
+    String url, {
+    Track? fallbackYtTrack,
+    Duration? resumePosition,
+  }) async {
+    final streamGen = _playGeneration;
+    final targetPos = resumePosition ?? _position;
     ConnectivityService().markOnline();
     if (url.startsWith('yt-iframe://')) {
       final videoId = url.substring('yt-iframe://'.length).trim();
@@ -1658,7 +1718,8 @@ class PlayerProvider extends ChangeNotifier {
       try {
         await _audioPlayer.stop();
       } catch (_) {}
-      _ytIframeBridge.loadVideo(videoId, startSeconds: 0, volume: _volume);
+      if (streamGen != _playGeneration) return;
+      _ytIframeBridge.loadVideo(videoId, startSeconds: targetPos.inSeconds, volume: _volume);
       return;
     }
 
@@ -1669,16 +1730,22 @@ class PlayerProvider extends ChangeNotifier {
       final cleanUrl = url.contains('?') ? '${url.substring(0, url.indexOf('?'))}?...' : url;
       logDebug('_playStream: attempting setUrl with $cleanUrl');
       await _audioPlayer.stop();
+      if (streamGen != _playGeneration) return;
       if (!kIsWeb && !url.startsWith('http://') && !url.startsWith('https://')) {
         await _audioPlayer.setFilePath(url);
       } else {
         await _audioPlayer.setUrl(url);
       }
-      if (_position > Duration.zero) {
-        await _audioPlayer.seek(_position);
+      if (streamGen != _playGeneration) return;
+      if (targetPos > Duration.zero) {
+        _position = targetPos;
+        positionNotifier.value = targetPos;
+        await _audioPlayer.seek(targetPos);
       }
+      if (streamGen != _playGeneration) return;
       logDebug('_playStream: audio source set. Setting volume and playing...');
       await _audioPlayer.setVolume(_volume);
+      if (streamGen != _playGeneration) return;
       _isPlaying = true;
       _isBuffering = false;
       _playbackError = null;
@@ -1690,6 +1757,7 @@ class PlayerProvider extends ChangeNotifier {
       unawaited(_audioPlayer.play());
       logDebug('_playStream: play() invoked successfully.');
     } catch (e) {
+      if (streamGen != _playGeneration) return;
       logDebug('_playStream: caught exception: $e');
       // On Web, if direct audio stream fails (e.g. CORS or media element restriction)
       // and we have a valid YouTube videoId, immediately switch to the Cloudflare Worker IFrame Bridge!
@@ -1704,7 +1772,7 @@ class PlayerProvider extends ChangeNotifier {
         _isBuffering = true;
         _playbackError = null;
         notifyListeners();
-        _ytIframeBridge.loadVideo(vid, startSeconds: _position.inSeconds, volume: _volume);
+        _ytIframeBridge.loadVideo(vid, startSeconds: targetPos.inSeconds, volume: _volume);
         return;
       }
       await _handlePlaybackFailure(e);
@@ -1718,6 +1786,8 @@ class PlayerProvider extends ChangeNotifier {
       return;
     }
 
+    final myGen = _playGeneration;
+    final resumePos = _position;
     final track = _currentTrack;
     if (track == null) {
       logDebug('_handlePlaybackFailure: currentTrack is null.');
@@ -1749,34 +1819,64 @@ class PlayerProvider extends ChangeNotifier {
       logDebug('_handlePlaybackFailure: added currentVid "$currentVid" to failedCandidateIds: $_failedCandidateIdsForTrack');
     }
 
-    // 1. If current track was Hi-Fi FLAC that failed, attempt refresh first before YouTube fallback
+    // 1. If current track was Hi-Fi FLAC that failed, perform multi-attempt recovery with signed URL refresh & full re-match before YouTube downgrade
     if (track.isLossless) {
-      logDebug('_handlePlaybackFailure: track was Hi-Fi FLAC. Attempting FLAC refresh before YouTube fallback...');
+      logDebug('_handlePlaybackFailure: track was Hi-Fi FLAC. Attempting resilient FLAC recovery at ${resumePos.inSeconds}s...');
       _isAttemptingCandidateFallback = true;
       _isBuffering = true;
       _playbackError = null;
       notifyListeners();
 
-      try {
-        final refreshed = await _hifiMatcher.refreshFlacUrl(track);
-        if (refreshed != null &&
-            refreshed.flacStreamUrl != null &&
-            refreshed.flacStreamUrl != track.flacStreamUrl) {
-          logDebug('_handlePlaybackFailure: FLAC refresh succeeded with fresh stream URL. Playing...');
-          _currentTrack = refreshed;
-          _updateTrackInQueue(refreshed);
-          _updateRecentlyPlayed(refreshed);
-          _persistPlayerState();
+      final recoverySteps = <Future<Track?> Function()>[
+        () => _hifiMatcher.refreshFlacUrl(track),
+        () => _hifiMatcher.matchToHifi(track, forceRefresh: true),
+      ];
+
+      for (var step = 0; step < recoverySteps.length; step++) {
+        if (step > 0) {
+          await Future.delayed(const Duration(milliseconds: 1200));
+        }
+        if (myGen != _playGeneration) {
           _isAttemptingCandidateFallback = false;
-          notifyListeners();
-          await _playStream(refreshed.flacStreamUrl!, fallbackYtTrack: refreshed);
           return;
         }
-      } catch (refErr) {
-        logDebug('_handlePlaybackFailure: FLAC refresh threw error: $refErr');
+        try {
+          final recovered = await recoverySteps[step]();
+          if (myGen != _playGeneration) {
+            _isAttemptingCandidateFallback = false;
+            return;
+          }
+          final newUrl = recovered?.flacStreamUrl;
+          if (recovered != null &&
+              newUrl != null &&
+              newUrl.isNotEmpty &&
+              (step > 0 || newUrl != track.flacStreamUrl)) {
+            logDebug('_handlePlaybackFailure: FLAC recovery step ${step + 1} succeeded. Resuming at ${resumePos.inSeconds}s...');
+            _currentTrack = recovered;
+            _updateTrackInQueue(recovered);
+            _updateRecentlyPlayed(recovered);
+            _persistPlayerState();
+            _syncNotificationMediaItem(recovered);
+            _isAttemptingCandidateFallback = false;
+            notifyListeners();
+            await _playStream(
+              newUrl,
+              fallbackYtTrack: recovered,
+              resumePosition: resumePos,
+            );
+            return;
+          }
+        } catch (refErr) {
+          logDebug('_handlePlaybackFailure: FLAC recovery step ${step + 1} threw: $refErr');
+        }
       }
 
-      logDebug('_handlePlaybackFailure: FLAC refresh unsuccessful. Downgrading to YouTube audio stream...');
+      if (myGen != _playGeneration) {
+        _isAttemptingCandidateFallback = false;
+        return;
+      }
+
+      logDebug('_handlePlaybackFailure: All FLAC recovery steps unsuccessful. Downgrading to YouTube audio stream...');
       try {
         final ytRes = await _ytResolver.resolveStreamForTrack(
           title: track.title,
@@ -1784,6 +1884,10 @@ class PlayerProvider extends ChangeNotifier {
           primaryVideoId: currentVid,
           excludedVideoIds: _failedCandidateIdsForTrack,
         );
+        if (myGen != _playGeneration) {
+          _isAttemptingCandidateFallback = false;
+          return;
+        }
 
         if (ytRes.isSuccess && ytRes.url != null) {
           logDebug('_handlePlaybackFailure: FLAC downgrade successfully resolved YouTube stream for "$currentVid"');
@@ -1797,10 +1901,15 @@ class PlayerProvider extends ChangeNotifier {
           _currentTrack = downgraded;
           _updateTrackInQueue(downgraded);
           _updateRecentlyPlayed(downgraded);
+          _syncNotificationMediaItem(downgraded);
           _isAttemptingCandidateFallback = false;
           notifyListeners();
 
-          await _playStream(ytRes.url!, fallbackYtTrack: downgraded);
+          await _playStream(
+            ytRes.url!,
+            fallbackYtTrack: downgraded,
+            resumePosition: resumePos,
+          );
           return;
         } else {
           logDebug('_handlePlaybackFailure: FLAC downgrade to YouTube failed: ${ytRes.errorMessage}');
