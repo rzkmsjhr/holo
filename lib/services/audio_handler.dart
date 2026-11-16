@@ -1,8 +1,9 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import '../models/track.dart';
+import 'artwork_service.dart';
 
-/// Bridges Holo's audio playback with the native Android/iOS MediaSession
+/// Bridges Holo Music Player's audio playback with the native Android/iOS MediaSession
 /// and persistent system notification controls.
 class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
   VoidCallback? onPlay;
@@ -43,15 +44,19 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
   }) async {
     _isStopped = false;
     final vid = track.youtubeVideoId ?? track.id;
-    final rawArt = (resolvedArtworkUrl != null && resolvedArtworkUrl.isNotEmpty)
-        ? resolvedArtworkUrl
-        : (track.highResThumbnailUrl.isNotEmpty
-            ? track.highResThumbnailUrl
-            : (track.thumbnailUrl.isNotEmpty
-                ? track.thumbnailUrl
-                : (vid.length == 11
-                    ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg'
-                    : '')));
+    final hasSquareTrackArt =
+        ArtworkService.isSquareAlbumArtworkUrl(track.highResThumbnailUrl);
+    final rawArt = hasSquareTrackArt
+        ? track.highResThumbnailUrl
+        : ((resolvedArtworkUrl != null && resolvedArtworkUrl.isNotEmpty)
+            ? resolvedArtworkUrl
+            : (track.highResThumbnailUrl.isNotEmpty
+                ? track.highResThumbnailUrl
+                : (track.thumbnailUrl.isNotEmpty
+                    ? track.thumbnailUrl
+                    : (vid.length == 11
+                        ? 'https://i.ytimg.com/vi/$vid/hqdefault.jpg'
+                        : ''))));
 
     final artUri = rawArt.isNotEmpty ? Uri.tryParse(rawArt) : null;
 
@@ -62,7 +67,7 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
 
     final item = MediaItem(
       id: track.id,
-      album: track.album.isNotEmpty ? track.album : 'Holo Hi-Fi',
+      album: track.album.isNotEmpty ? track.album : 'Holo Music Player',
       title: track.title,
       artist: track.artist,
       duration: dur,
@@ -182,9 +187,9 @@ class HoloAudioServiceManager {
         builder: () => HoloAudioHandler(),
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.example.pulse_audio.channel.audio',
-          androidNotificationChannelName: 'Holo Music Playback',
+          androidNotificationChannelName: 'Holo Music Player',
           androidNotificationChannelDescription:
-              'Persistent media playback controls for Holo',
+              'Persistent media playback controls for Holo Music Player',
           androidNotificationIcon: 'mipmap/ic_launcher',
           androidShowNotificationBadge: false,
           androidNotificationClickStartsActivity: true,

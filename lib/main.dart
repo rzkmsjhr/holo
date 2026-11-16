@@ -24,13 +24,13 @@ Future<void> main() async {
       providers: [
         ChangeNotifierProvider(create: (_) => PlayerProvider()),
       ],
-      child: const PulseAudioApp(),
+      child: const HoloMusicPlayerApp(),
     ),
   );
 }
 
-class PulseAudioApp extends StatelessWidget {
-  const PulseAudioApp({super.key});
+class HoloMusicPlayerApp extends StatelessWidget {
+  const HoloMusicPlayerApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +38,7 @@ class PulseAudioApp extends StatelessWidget {
         context.select<PlayerProvider, bool>((p) => p.isDarkMode);
 
     return MaterialApp(
-      title: 'Holo',
+      title: 'Holo Music Player',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),

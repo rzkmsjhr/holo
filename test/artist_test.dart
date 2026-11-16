@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/artist_details.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/services/artist_service.dart';
+import 'package:holo_music_player/models/artist_details.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/services/artist_service.dart';
 
 void main() {
   group('ArtistDetails & ArtistRelease Model Tests', () {

@@ -1,4 +1,4 @@
-# Pulse Audio: Design System & Direction
+# Holo Music Player: Design System & Direction
 
 > **Design Read**: Reading this as: Mobile music streaming application for audiophiles and daily music listeners, in a modern Scandinavian-Swiss utility visual language with vivid solar accents, dial **ENERGY 2 / RHYTHM 1 / MOTION 2**.
 

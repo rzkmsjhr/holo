@@ -1,10 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/services/audio_handler.dart';
-import 'package:pulse_audio/services/lyrics_service.dart';
-import 'package:pulse_audio/ui/widgets/holo_image.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/services/audio_handler.dart';
+import 'package:holo_music_player/services/lyrics_service.dart';
+import 'package:holo_music_player/ui/widgets/holo_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

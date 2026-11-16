@@ -342,7 +342,7 @@ class PlayerProvider extends ChangeNotifier {
   PlayerProvider() {
     _ytResolver.onLog = logDebug;
     _ytIframeBridge.onLog = logDebug;
-    logDebug('Pulse Audio Player initialized. Diagnostic logging active.');
+    logDebug('Holo Music Player initialized. Diagnostic logging active.');
     SharedPreferences.getInstance().then((p) => _prefs = p, onError: (_) {});
     _initMediaNotificationHandler();
     _initConnectivity();

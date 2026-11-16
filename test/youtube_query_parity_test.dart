@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/providers/player_provider.dart';
-import 'package:pulse_audio/services/trending_service.dart';
-import 'package:pulse_audio/services/vibe_recommendation_service.dart';
-import 'package:pulse_audio/services/youtube_music_service.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/providers/player_provider.dart';
+import 'package:holo_music_player/services/trending_service.dart';
+import 'package:holo_music_player/services/vibe_recommendation_service.dart';
+import 'package:holo_music_player/services/youtube_music_service.dart';
 
 void main() {
   group('Step 4 Parity: High-Res Cover Art Optimization', () {

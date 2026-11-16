@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/services/genre_explore_service.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/services/genre_explore_service.dart';
 
 void main() {
   test('GenreExploreService returns default genres with candidates', () {

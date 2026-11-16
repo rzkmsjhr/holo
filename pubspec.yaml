@@ -1,5 +1,5 @@
-name: pulse_audio
-description: "Pulse Audio - Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources."
+name: holo_music_player
+description: "Holo Music Player - Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources."
 publish_to: 'none'
 version: 1.0.1+2
 

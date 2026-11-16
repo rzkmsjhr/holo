@@ -1,4 +1,4 @@
-name: Release Pulse Audio (Android & iOS)
+name: Release Holo Music Player (Android & iOS)
 
 on:
   push:
@@ -43,13 +43,13 @@ jobs:
         run: flutter build apk --release
 
       - name: Prepare APK artifact
-        run: cp build/app/outputs/flutter-apk/app-release.apk pulse-audio-release.apk
+        run: cp build/app/outputs/flutter-apk/app-release.apk holo-music-player-release.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pulse-audio-android-apk
-          path: pulse-audio-release.apk
+          name: holo-music-player-android-apk
+          path: holo-music-player-release.apk
           retention-days: 1
 
   build-ios:
@@ -71,8 +71,18 @@ jobs:
 
       - name: Setup App Icon and Info.plist
         run: |
-          mkdir -p ios/Runner/Assets.xcassets/AppIcon.appiconset
-          cp assets/icons/app_logo_1024.png ios/Runner/Assets.xcassets/AppIcon.appiconset/Icon-App-1024x1024@1x.png || true
+          ICON_DIR="ios/Runner/Assets.xcassets/AppIcon.appiconset"
+          mkdir -p "$ICON_DIR"
+          for f in "$ICON_DIR"/Icon-App-*.png; do
+            [ -e "$f" ] || continue
+            SZ=$(sips -g pixelWidth "$f" | awk '/pixelWidth/ {print $2}')
+            if [ -n "$SZ" ]; then
+              sips -z "$SZ" "$SZ" assets/icons/app_logo_1024.png --out "$f"
+            fi
+          done
+          cp assets/icons/app_logo_1024.png "$ICON_DIR/Icon-App-1024x1024@1x.png" || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Holo Music Player" ios/Runner/Info.plist || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Holo Music Player" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName Holo Music Player" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" ios/Runner/Info.plist || true
 
@@ -106,14 +116,14 @@ jobs:
           echo "Found Runner.app at: $APP_PATH"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          zip -r pulse-audio-sideload.ipa Payload
+          zip -r holo-music-player-sideload.ipa Payload
           rm -rf Payload
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pulse-audio-ios-ipa
-          path: pulse-audio-sideload.ipa
+          name: holo-music-player-ios-ipa
+          path: holo-music-player-sideload.ipa
           retention-days: 1
 
   publish-release:
@@ -139,14 +149,14 @@ jobs:
       - name: Download Android APK
         uses: actions/download-artifact@v4
         with:
-          name: pulse-audio-android-apk
+          name: holo-music-player-android-apk
           path: release-assets
 
       - name: Download iOS IPA
         if: needs.build-ios.result == 'success'
         uses: actions/download-artifact@v4
         with:
-          name: pulse-audio-ios-ipa
+          name: holo-music-player-ios-ipa
           path: release-assets
 
       - name: Create GitHub Release
@@ -155,14 +165,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.release_meta.outputs.TAG }}
-          name: Pulse Audio ${{ steps.release_meta.outputs.TAG }}
+          name: Holo Music Player ${{ steps.release_meta.outputs.TAG }}
           draft: false
           prerelease: false
           files: |
-            release-assets/pulse-audio-release.apk
+            release-assets/holo-music-player-release.apk
             release-assets/*.ipa
           body: |
-            ### Pulse Audio Mobile Release (${{ steps.release_meta.outputs.TAG }})
+            ### Holo Music Player Mobile Release (${{ steps.release_meta.outputs.TAG }})
 
             High-fidelity mobile music player with YouTube streaming and studio-grade Lossless FLAC elevation.
 
@@ -171,11 +181,11 @@ jobs:
             ### 📦 Download & Installation
 
             #### 📱 Android:
-            1. Download **`pulse-audio-release.apk`** below directly to your device.
+            1. Download **`holo-music-player-release.apk`** below directly to your device.
             2. Tap to install (enable *"Install from Unknown Sources"* if prompted).
 
             #### 🍏 iOS (Sideloading):
-            1. Download **`pulse-audio-sideload.ipa`** below.
+            1. Download **`holo-music-player-sideload.ipa`** below.
             2. Open **AltStore**, **Sideloadly**, or **TrollStore** on your computer/phone.
             3. Sideload the IPA using your free Apple ID.
             4. Enable Background Audio under system settings if desired.

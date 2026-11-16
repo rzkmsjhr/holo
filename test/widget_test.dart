@@ -1,19 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:pulse_audio/main.dart';
-import 'package:pulse_audio/providers/player_provider.dart';
+import 'package:holo_music_player/main.dart';
+import 'package:holo_music_player/providers/player_provider.dart';
 
 void main() {
-  testWidgets('Pulse Audio smoke test', (WidgetTester tester) async {
+  testWidgets('Holo Music Player smoke test', (WidgetTester tester) async {
     final player = PlayerProvider();
     await tester.pumpWidget(
       ChangeNotifierProvider<PlayerProvider>.value(
         value: player,
-        child: const PulseAudioApp(),
+        child: const HoloMusicPlayerApp(),
       ),
     );
     await tester.pump();
-    expect(find.byType(PulseAudioApp), findsOneWidget);
+    expect(find.byType(HoloMusicPlayerApp), findsOneWidget);
     player.dispose();
   });
 }

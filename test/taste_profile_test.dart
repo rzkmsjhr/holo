@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/services/taste_profile_service.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/services/taste_profile_service.dart';
 
 void main() {
   test('TasteProfileService records plays and generates mixes', () async {

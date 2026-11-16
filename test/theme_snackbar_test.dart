@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/core/theme/app_theme.dart';
+import 'package:holo_music_player/core/theme/app_theme.dart';
 
 void main() {
   group('SnackBar Theme Light/Dark Mode Adaptation Tests', () {

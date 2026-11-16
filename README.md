@@ -1,6 +1,6 @@
-# pulse_audio
+# Holo Music Player (`holo_music_player`)
 
-A new Flutter project.
+Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources.
 
 ## Getting Started
 

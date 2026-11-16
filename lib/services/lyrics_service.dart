@@ -528,7 +528,7 @@ class LyricsService {
 
     try {
       final res = await HoloHttpClient.client.get(uri, headers: {
-        'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
+        'User-Agent': 'HoloMusicPlayer/1.0.1 (https://github.com/rzkmsjhr/holo)',
       }).timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) return [];
@@ -614,7 +614,7 @@ class LyricsService {
 
     try {
       final res = await HoloHttpClient.client.get(uri, headers: {
-        'User-Agent': 'PulseAudio/1.0.0 (https://github.com/pulseaudio)',
+        'User-Agent': 'HoloMusicPlayer/1.0.1 (https://github.com/rzkmsjhr/holo)',
       }).timeout(const Duration(seconds: 6));
 
       if (res.statusCode != 200) return [];

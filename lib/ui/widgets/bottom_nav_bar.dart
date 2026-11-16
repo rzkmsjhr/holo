@@ -35,18 +35,21 @@ class BottomNavBar extends StatelessWidget {
             icon: Icons.home_rounded,
             label: 'Home',
             isActive: currentIndex == 0,
+            isDark: isDark,
           ),
           _buildTab(
             index: 1,
             icon: Icons.search_rounded,
             label: 'Search',
             isActive: currentIndex == 1,
+            isDark: isDark,
           ),
           _buildTab(
             index: 2,
             icon: Icons.library_music_rounded,
             label: 'Library',
             isActive: currentIndex == 2,
+            isDark: isDark,
           ),
         ],
       ),
@@ -58,7 +61,10 @@ class BottomNavBar extends StatelessWidget {
     required IconData icon,
     required String label,
     required bool isActive,
+    required bool isDark,
   }) {
+    final inactiveColor =
+        isDark ? AppColors.darkTextTertiary : AppColors.lightTextSecondary;
     return InkWell(
       onTap: () => onTabSelected(index),
       borderRadius: BorderRadius.circular(16),
@@ -70,7 +76,7 @@ class BottomNavBar extends StatelessWidget {
             Icon(
               icon,
               size: 24,
-              color: isActive ? AppColors.primary : AppColors.darkTextTertiary,
+              color: isActive ? AppColors.primary : inactiveColor,
             ),
             const SizedBox(height: 3),
             Text(
@@ -78,8 +84,7 @@ class BottomNavBar extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: isActive ? FontWeight.w800 : FontWeight.w600,
-                color:
-                    isActive ? AppColors.primary : AppColors.darkTextTertiary,
+                color: isActive ? AppColors.primary : inactiveColor,
               ),
             ),
           ],

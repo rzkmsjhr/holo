@@ -1,9 +1,9 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/providers/player_provider.dart';
-import 'package:pulse_audio/services/playlist_import_service.dart';
-import 'package:pulse_audio/services/playlist_service.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/providers/player_provider.dart';
+import 'package:holo_music_player/services/playlist_import_service.dart';
+import 'package:holo_music_player/services/playlist_service.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

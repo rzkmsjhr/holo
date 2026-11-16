@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:pulse_audio/services/lyrics_service.dart';
+import 'package:holo_music_player/services/lyrics_service.dart';
 
 void main() {
   group('Universal Lyrics Sanitization Tests', () {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/services/trending_service.dart';
+import 'package:holo_music_player/services/trending_service.dart';
 
 void main() {
   test('TrendingService loads Global and Indonesia top 50 with plays', () async {

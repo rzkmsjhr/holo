@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/track.dart';
-import 'package:pulse_audio/providers/player_provider.dart';
+import 'package:holo_music_player/models/track.dart';
+import 'package:holo_music_player/providers/player_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {

@@ -1,8 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:pulse_audio/models/trending_track.dart';
-import 'package:pulse_audio/services/artwork_service.dart';
-import 'package:pulse_audio/services/hifi_matcher.dart';
-import 'package:pulse_audio/services/trending_service.dart';
+import 'package:holo_music_player/models/trending_track.dart';
+import 'package:holo_music_player/services/artwork_service.dart';
+import 'package:holo_music_player/services/hifi_matcher.dart';
+import 'package:holo_music_player/services/trending_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
