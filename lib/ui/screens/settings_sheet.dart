@@ -453,7 +453,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                                   ),
                                 ),
                                 Text(
-                                  'Version 1.0.1',
+                                  'Version 1.0.2',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w500,
