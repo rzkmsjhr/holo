@@ -38,7 +38,7 @@ class HoloMusicPlayerApp extends StatelessWidget {
         context.select<PlayerProvider, bool>((p) => p.isDarkMode);
 
     return MaterialApp(
-      title: 'Holo Music Player',
+      title: 'Holo',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme(),
       darkTheme: AppTheme.darkTheme(),

@@ -443,7 +443,7 @@ class _SettingsSheetState extends State<SettingsSheet> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Holo Music Player',
+                                  'Holo',
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,

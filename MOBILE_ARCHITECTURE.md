@@ -1,6 +1,6 @@
-# Mobile Architecture & Implementation Blueprint: Holo Music Player
+# Mobile Architecture & Implementation Blueprint: Holo
 
-This document specifies the exact component architecture, gesture handlers, state models, and design tokens for implementing **Holo Music Player** across **Flutter** and **Kotlin Multiplatform (Compose Multiplatform)** for iOS and Android.
+This document specifies the exact component architecture, gesture handlers, state models, and design tokens for implementing **Holo** across **Flutter** and **Kotlin Multiplatform (Compose Multiplatform)** for iOS and Android.
 
 ---
 

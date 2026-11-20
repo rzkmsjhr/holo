@@ -1,4 +1,4 @@
-# Holo Music Player (`holo_music_player`)
+# Holo (`holo_music_player`)
 
 Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources.
 

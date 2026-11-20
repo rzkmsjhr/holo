@@ -1,4 +1,4 @@
-name: Release Holo Music Player (Android & iOS)
+name: Release Holo (Android & iOS)
 
 on:
   push:
@@ -81,8 +81,8 @@ jobs:
             fi
           done
           cp assets/icons/app_logo_1024.png "$ICON_DIR/Icon-App-1024x1024@1x.png" || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Holo Music Player" ios/Runner/Info.plist || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Holo Music Player" ios/Runner/Info.plist || true
-          /usr/libexec/PlistBuddy -c "Set :CFBundleName Holo Music Player" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Holo" ios/Runner/Info.plist || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Holo" ios/Runner/Info.plist || true
+          /usr/libexec/PlistBuddy -c "Set :CFBundleName Holo" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" ios/Runner/Info.plist || true
           /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" ios/Runner/Info.plist || true
 
@@ -165,14 +165,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ steps.release_meta.outputs.TAG }}
-          name: Holo Music Player ${{ steps.release_meta.outputs.TAG }}
+          name: Holo ${{ steps.release_meta.outputs.TAG }}
           draft: false
           prerelease: false
           files: |
             release-assets/holo-music-player-release.apk
             release-assets/*.ipa
           body: |
-            ### Holo Music Player Mobile Release (${{ steps.release_meta.outputs.TAG }})
+            ### Holo Mobile Release (${{ steps.release_meta.outputs.TAG }})
 
             High-fidelity mobile music player with YouTube streaming and studio-grade Lossless FLAC elevation.
 

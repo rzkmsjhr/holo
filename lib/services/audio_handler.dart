@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../models/track.dart';
 import 'artwork_service.dart';
 
-/// Bridges Holo Music Player's audio playback with the native Android/iOS MediaSession
+/// Bridges Holo's audio playback with the native Android/iOS MediaSession
 /// and persistent system notification controls.
 class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
   VoidCallback? onPlay;
@@ -67,7 +67,7 @@ class HoloAudioHandler extends BaseAudioHandler with SeekHandler {
 
     final item = MediaItem(
       id: track.id,
-      album: track.album.isNotEmpty ? track.album : 'Holo Music Player',
+      album: track.album.isNotEmpty ? track.album : 'Holo',
       title: track.title,
       artist: track.artist,
       duration: dur,
@@ -187,9 +187,9 @@ class HoloAudioServiceManager {
         builder: () => HoloAudioHandler(),
         config: const AudioServiceConfig(
           androidNotificationChannelId: 'com.example.pulse_audio.channel.audio',
-          androidNotificationChannelName: 'Holo Music Player',
+          androidNotificationChannelName: 'Holo',
           androidNotificationChannelDescription:
-              'Persistent media playback controls for Holo Music Player',
+              'Persistent media playback controls for Holo',
           androidNotificationIcon: 'mipmap/ic_launcher',
           androidShowNotificationBadge: false,
           androidNotificationClickStartsActivity: true,

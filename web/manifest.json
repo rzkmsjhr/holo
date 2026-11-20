@@ -1,11 +1,11 @@
 {
-    "name": "Holo Music Player",
-    "short_name": "Holo Music Player",
+    "name": "Holo",
+    "short_name": "Holo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "Holo Music Player - Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources.",
+    "description": "Holo - Modern, gesture-reactive mobile music player with YouTube and Hi-Res FLAC sources.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

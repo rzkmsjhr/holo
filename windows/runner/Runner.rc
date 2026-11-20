@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "Holo Music Player" "\0"
-            VALUE "FileDescription", "Holo Music Player" "\0"
+            VALUE "CompanyName", "Holo" "\0"
+            VALUE "FileDescription", "Holo" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "holo_music_player" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 Holo Music Player. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Holo. All rights reserved." "\0"
             VALUE "OriginalFilename", "holo_music_player.exe" "\0"
-            VALUE "ProductName", "Holo Music Player" "\0"
+            VALUE "ProductName", "Holo" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

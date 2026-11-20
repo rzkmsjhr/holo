@@ -890,7 +890,7 @@ class _NowPlayingSheetState extends State<NowPlayingSheet>
                                             Text(
                                               track.album.isNotEmpty
                                                   ? track.album
-                                                  : 'Holo Music Player',
+                                                  : 'Holo',
                                               style: const TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w700,
